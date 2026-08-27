@@ -1,0 +1,87 @@
+{
+  "name": "@olivierzal/api-core",
+  "version": "1.0.0",
+  "description": "Shared API-client core for the OlivierZal SDKs: redaction-seated HTTP client, observability shells, resilience primitives — mechanism here, protocol vocabulary in each consumer",
+  "keywords": [
+    "http",
+    "observability",
+    "redaction",
+    "resilience"
+  ],
+  "homepage": "https://github.com/OlivierZal/api-core#readme",
+  "bugs": {
+    "url": "https://github.com/OlivierZal/api-core/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OlivierZal/api-core.git"
+  },
+  "license": "MIT",
+  "author": "Olivier Zalmanski",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fire-and-forget": {
+      "types": "./dist/fire-and-forget.d.ts",
+      "default": "./dist/fire-and-forget.js"
+    },
+    "./package.json": "./package.json",
+    "./temporal": {
+      "types": "./dist/temporal.d.ts",
+      "default": "./dist/temporal.js"
+    },
+    "./time-units": {
+      "types": "./dist/time-units.d.ts",
+      "default": "./dist/time-units.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.build.json",
+    "docs": "typedoc",
+    "format": "prettier . --check",
+    "format:fix": "prettier . --write",
+    "lint": "node --max-old-space-size=8192 ./node_modules/eslint/bin/eslint.js .",
+    "lint:fix": "npm run lint -- --fix",
+    "lint:package": "npm run build && publint --strict",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm test && npm run typecheck && npm run lint && npm run format && npm run docs",
+    "test": "vitest run",
+    "test:coverage": "npm test -- --coverage",
+    "typecheck": "node ./node_modules/@typescript/native/bin/tsc --noEmit"
+  },
+  "prettier": "@olivierzal/configs/prettier",
+  "dependencies": {
+    "temporal-polyfill": "^1.0.3"
+  },
+  "devDependencies": {
+    "@olivierzal/configs": "4.2.1",
+    "@types/node": "^26.1.2",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.0",
+    "jiti": "^2.7.0",
+    "prettier": "^3.9.6",
+    "publint": "^0.3.22",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-coverage": "^4.0.3",
+    "typedoc-plugin-mdn-links": "^5.1.1",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.7",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
+}

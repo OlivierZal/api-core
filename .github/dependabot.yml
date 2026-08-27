@@ -1,0 +1,66 @@
+registries:
+  npm-github:
+    token: ${{ secrets.MY_GITHUB_PERSONAL_TOKEN }}
+    type: npm-registry
+    url: https://npm.pkg.github.com
+updates:
+  # Both ecosystems share the `build(deps)` type: it keeps every bump under
+  # one `git log --grep` and leaves `ci` to mean hand-written CI changes.
+  # Pinned rather than left to Dependabot, which otherwise infers prefix and
+  # capitalization from each repo's history and lands a different style per
+  # repo.
+  - commit-message:
+      prefix: build(deps)
+    cooldown:
+      default-days: 7
+    directory: /
+    groups:
+      actions:
+        patterns:
+          - '*'
+    # One version covers both @olivierzal/configs channels, and only the
+    # npm one is driven here: a workflow-ref bump on its own would face
+    # the pin check against an npm pin that has not moved, and each of
+    # the two pull requests would block the other. The npm bump carries
+    # the refs along instead.
+    ignore:
+      - dependency-name: OlivierZal/configs
+    package-ecosystem: github-actions
+    schedule:
+      interval: weekly
+  - commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
+    cooldown:
+      default-days: 7
+    directory: /
+    groups:
+      eslint:
+        patterns:
+          - '@eslint/*'
+          - '@stylistic/*'
+          - eslint
+          - eslint-*
+          - typescript-eslint
+      minor-and-patch:
+        exclude-patterns:
+          - '@eslint/*'
+          - '@stylistic/*'
+          - '@vitest/*'
+          - eslint
+          - eslint-*
+          - typescript-eslint
+          - vitest
+        update-types:
+          - minor
+          - patch
+      vitest:
+        patterns:
+          - '@vitest/*'
+          - vitest
+    package-ecosystem: npm
+    registries:
+      - npm-github
+    schedule:
+      interval: weekly
+version: 2

@@ -1,0 +1,46 @@
+# workflow_run (not pull_request) is deliberate: dependabot-triggered runs
+# get a read-only token and only dependabot secrets, so they cannot reach
+# CLAUDE_CODE_OAUTH_TOKEN — this run executes in the default-branch context
+# instead. Claude pushes through its GitHub App token, which re-triggers CI
+# (a GITHUB_TOKEN push would not), and the dependabot auto-merge workflow
+# then completes the loop once green.
+concurrency:
+  cancel-in-progress: false
+  group: claude-dependabot-fix-${{ github.event.workflow_run.head_branch }}
+jobs:
+  fix:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    uses: OlivierZal/configs/.github/workflows/reusable-claude-dependabot-fix.yml@dd730be20712cee23726f2f9da9403d9f79694e2 # v4.2.1
+    with:
+      repo-guidance: >-
+        Family core: this package OWNS the mechanisms melcloud-api and
+        heatzy-api re-export (HTTP client, redaction engine, resilience
+        primitives, observability shells). A behavioral change here
+        reaches both consumers only through a release plus an adoption
+        pin bump in each — never assume a fix lands anywhere until the
+        consumers adopt it.
+
+        Two channels, one version: when the bump is
+        `@olivierzal/configs`, move the reusable-workflow refs under
+        .github/workflows to the tag matching the new npm pin, in the
+        same commit — the pin check fails otherwise. Resolve that tag's
+        commit rather than guessing it, and keep every version comment
+        at the end of its line. If the release changes lint policy —
+        new or stricter rules, a naming default, a runtime floor — stop
+        there and leave the pull request red: each repository
+        classifies its own violations, and that is a human call.
+      verify-commands: '`npm run format`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run docs`, and `npm run lint:package`'
+name: Claude Dependabot Fix
+on:
+  workflow_run:
+    types: [completed]
+    # The repo's two always-running required build gates (see ruleset).
+    workflows: [CI, zizmor]
+permissions: {}

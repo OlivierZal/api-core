@@ -1,0 +1,5 @@
+{
+  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
+  "extends": "@olivierzal/configs/tsconfig/library",
+  "include": ["src"]
+}

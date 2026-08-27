@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  APICallLogData,
+  APICallRequestData,
+  APICallResponseData,
+  APIError,
+  AuthRetryPolicy,
+  BASE_SENSITIVE_KEYS,
+  baseRedaction,
+  CompositePolicy,
+  createAPICallErrorData,
+  createRedaction,
+  DEFAULT_TRANSIENT_RETRY_OPTIONS,
+  DisposableTimeout,
+  fireAndForget,
+  formatDurationHuman,
+  HttpClient,
+  HttpError,
+  HttpStatus,
+  Intl,
+  isAPIError,
+  isHttpError,
+  isSessionExpired,
+  isTransientServerError,
+  LifecycleEmitter,
+  MS_PER_DAY,
+  MS_PER_MINUTE,
+  MS_PER_SECOND,
+  RateLimitError,
+  RateLimitGate,
+  RateLimitPolicy,
+  REDACTED,
+  RetryGuard,
+  readHeaders,
+  SESSION_REFRESH_AHEAD_MS,
+  SyncManager,
+  Temporal,
+  TransientRetryPolicy,
+  withRetryBackoff,
+} from '../../src/index.ts'
+
+// Imports the ROOT barrel (the other suites reach modules directly), so
+// the barrel executes under coverage and the published surface is
+// pinned: an accidental drop from the export list fails here before a
+// consumer's adoption train finds the hole.
+const surface: Record<string, unknown> = {
+  APICallLogData,
+  APICallRequestData,
+  APICallResponseData,
+  APIError,
+  AuthRetryPolicy,
+  BASE_SENSITIVE_KEYS,
+  baseRedaction,
+  CompositePolicy,
+  createAPICallErrorData,
+  createRedaction,
+  DEFAULT_TRANSIENT_RETRY_OPTIONS,
+  DisposableTimeout,
+  fireAndForget,
+  formatDurationHuman,
+  HttpClient,
+  HttpError,
+  HttpStatus,
+  Intl,
+  isAPIError,
+  isHttpError,
+  isSessionExpired,
+  isTransientServerError,
+  LifecycleEmitter,
+  MS_PER_DAY,
+  MS_PER_MINUTE,
+  MS_PER_SECOND,
+  RateLimitError,
+  RateLimitGate,
+  RateLimitPolicy,
+  REDACTED,
+  RetryGuard,
+  readHeaders,
+  SESSION_REFRESH_AHEAD_MS,
+  SyncManager,
+  Temporal,
+  TransientRetryPolicy,
+  withRetryBackoff,
+}
+
+describe.concurrent('public surface', () => {
+  it.each(Object.keys(surface))('exports %s from the root barrel', (name) => {
+    expect(surface[name]).toBeDefined()
+  })
+})

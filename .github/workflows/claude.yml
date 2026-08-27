@@ -1,0 +1,23 @@
+# Calls the family workflow of the same name in OlivierZal/configs.
+jobs:
+  claude:
+    # Exactly the callable job's declared permissions (its checkout is
+    # read-only; Claude pushes through its GitHub App token, not this one).
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      issues: read
+      pull-requests: read
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    uses: OlivierZal/configs/.github/workflows/claude.yml@dd730be20712cee23726f2f9da9403d9f79694e2 # v4.2.1
+name: claude
+on:
+  # No pull_request_review(_comment): Copilot auto-review fires them as a
+  # write-less bot, piling up held runs the if-guard would skip anyway.
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+permissions: {}
