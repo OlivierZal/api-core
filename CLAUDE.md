@@ -156,23 +156,25 @@ Release → `publish.yml` (GitHub Packages, provenance-attested),
 registry proven by `npm view` before any "published" claim. Version by
 the CONTRACT, not by observed consumers.
 
-## First-run ledger — measured 2026-08-27
+## First-run ledger — measured 2026-08-27, closed 2026-08-29
 
 Facts observed on the scaffold's first CI run, kept here so nobody
-re-derives them:
+re-derives them. The console wiring the first run waited on is DONE:
+`SONAR_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and the Dependabot
+`MY_GITHUB_PERSONAL_TOKEN` were set on 2026-08-28, the `npm` and
+`github-pages` environments exist (1.0.0 published to GitHub Packages,
+proven by `npm view`; the Pages policy admits `v*` tags, so a docs
+re-dispatch targets the tag ref, not `main`).
 
 - **The configs install needs no repo secret in CI.** Every
   reusable-ci leg installed `@olivierzal/configs` with the job-scoped
   `GITHUB_TOKEN` (`packages: read`) — same as the siblings; no
   `npm-token`-style secret exists to set.
-- **`ci / Sonar` is the one red context** until the SonarCloud project
-  `OlivierZal_api-core` exists and the repo carries `SONAR_TOKEN`; the
-  ruleset (`Protect main`, created 2026-08-27 via the rulesets API)
-  requires it, so every PR — this one included — waits on that
-  wiring.
-- **Dependabot's npm channel fails** until the `MY_GITHUB_PERSONAL_TOKEN`
-  Dependabot secret exists (the `.github/dependabot.yml` registry entry
-  reads it); the github-actions channel already runs.
-- Publishing waits on the `npm` environment (publish.yml targets it)
-  and the Pages deploy on the `github-pages` environment allowing `v*`
-  tags — both console-side, like the siblings'.
+- **SonarCloud surfaces security hotspots as ISSUES here.** The
+  organization's mode converts `former-hotspot` rules (S2245) into
+  `VULNERABILITY` issues: `/hotspots/search` answers zero while the
+  quality gate still fails on the open issue — query `/issues/search`
+  with the rule key before concluding there is nothing to adjudicate.
+  The verdict lives ON the issue (Accepted + rationale), mirrored by
+  the comment at the flagged line; heatzy's twin S2245 was only ever
+  auto-resolved by code removal, so this is the family's precedent.
