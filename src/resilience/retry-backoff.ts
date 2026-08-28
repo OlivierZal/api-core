@@ -145,8 +145,11 @@ const sleep = async (ms: number, signal?: AbortSignal): Promise<void> => {
 // `Math.random()` is intentional here: retry timing is NOT
 // security-sensitive — it's only used to desynchronize concurrent retries
 // so a bursty error pattern doesn't resonate into a thundering herd.
-// SonarCloud's S2245 hotspot on this line is marked SAFE in the project
-// dashboard with that rationale.
+// SonarCloud raises S2245 on this line as a VULNERABILITY issue, not a
+// reviewable hotspot (the rule is a `former-hotspot` in the
+// organization's mode, so `/hotspots/search` shows nothing while the
+// gate still fails); the project verdict is Accepted, recorded on the
+// issue itself with this rationale.
 const computeDelay = (
   attempt: number,
   { initialDelayMs, jitterRatio, maxDelayMs }: RetryBackoffOptions,
