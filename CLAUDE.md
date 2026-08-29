@@ -100,6 +100,65 @@ Where the twins had drifted, this package settles the difference once:
   `content-length: 0` body both read back as empty text).
 - `CompositePolicy` stays (melcloud composes with it; heatzy nests
   `run` calls directly and simply doesn't import it).
+- `AuthenticationError`'s doc is the protocol-neutral union of the
+  twins' (melcloud named the 401 path, heatzy named Gizwits' 400/401);
+  which statuses count is `AuthRetryPolicy`'s parameter, not the
+  class's business. Its `name` stays typed `string`, not a literal —
+  that is what lets `AuthenticationThrottledError` narrow it.
+- `AuthenticationThrottledError` was melcloud-only (heatzy's ledger
+  said "No AuthenticationThrottledError"). It comes here anyway: the
+  session mechanism that follows gates its login backoff on the
+  distinction between "password rejected" and "sign-ins refused", so
+  the mechanism cannot be extracted without it. heatzy simply never
+  constructs it — an unconstructed export costs a consumer nothing.
+
+## The session prerequisites — why these four, and the probe
+
+`AuthenticationError`, `AuthenticationThrottledError`,
+`LoginCredentials` and the `setting` decorator landed together, ahead
+of the session-lifecycle mechanism itself, because that mechanism gates
+on all four: it backs off on the throttled error, signs in with the
+credentials pair, and persists `expiry` / `loginBackoffUntil` /
+`password` / `username` through the decorator. They are
+mechanism-adjacent by the same logic that moved `HttpError` — the
+machinery that will follow gates on them — while the protocol
+vocabulary (which status means "throttled", which wire field carries
+the window) stays in each SDK.
+
+**The storage key is the accessor name, and that is a data contract.**
+`setting` resolves its key as `String(context.name)`, once at
+decoration time. Hosts already hold values under `expiry`,
+`loginBackoffUntil`, `password` and `username`; renaming a decorated
+accessor renames its key and strands the stored value. Nothing may
+change how the key is derived —
+`tests/unit/setting-decorator.test.ts` pins the four literals against
+the keys a mock `SettingManager` actually observes, and derives the key
+by hand from a fabricated context so the rule is asserted as an input,
+not inferred from class syntax.
+
+**The decorator needed a probe because nothing here had proven it.**
+This package had no decorator and no decorator overlay in its ESLint
+config, and no one had shown that a TC39 accessor decorator survives a
+PACKAGE BOUNDARY under `isolatedDeclarations` and the native
+TypeScript 7 compiler — the emit lives in the CONSUMER, so a working
+build here would have proved nothing. Probed before any of the rest was
+written, with a throwaway consumer package that resolved
+`@olivierzal/api-core` to this repo and applied the BUILT decorator to
+its own accessors: the native compiler typechecked and emitted it
+(exit 0 both times), the emitted `__esDecorate` ran, and the four keys
+came back exactly. Two facts the probe settled and the code now
+depends on:
+
+- The `HasSettingManager` host contract stays UNEXPORTED.
+  `isolatedDeclarations` is satisfied by a file-local interface —
+  declaration emit inlines it — so the public surface gains one name
+  (`setting`), not two. It costs a typedoc
+  `intentionallyNotExported` entry, exactly as heatzy-api's copy did.
+- No ESLint overlay was needed. The `library` preset already admits
+  standard decorators, and the tsconfig base's `erasableSyntaxOnly`
+  does not reject them; the vitest `swcPlugin` (already adopted here
+  before there was anything to transform) runs the 2022-03 protocol in
+  the suites.
 
 ## Runtime floors
 
