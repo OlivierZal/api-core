@@ -178,3 +178,27 @@ re-dispatch targets the tag ref, not `main`).
   The verdict lives ON the issue (Accepted + rationale), mirrored by
   the comment at the flagged line; heatzy's twin S2245 was only ever
   auto-resolved by code removal, so this is the family's precedent.
+
+## Bootstrap order — the fault this repo's own history records
+
+**1.0.0 shipped from a commit no gate ever judged.** Measured from this
+repo's history (2026-08-27, all times UTC): the seed commit `702f5e0`
+was pushed STRAIGHT TO `main` at 17:58:09, the `Protect main` ruleset
+was created at 17:58:13 — four seconds later — and `v1.0.0` was tagged
+on that same seed commit at 18:53 and adopted by both SDKs by 19:14.
+The repo's first CI run on `main` is dated 2026-08-28, a day AFTER the
+release. Publishing never needed the missing secrets (`publish.yml`
+wants the `npm` environment and the job `GITHUB_TOKEN`; `SONAR_TOKEN`
+gates nothing there), so nothing stopped a release whose code had
+passed no gate of its own.
+
+What did cover it, for the record: the full local suite, PR #1's CI
+legs running the same tree green at 18:11 (only `ci / Sonar` red, for
+want of a project), and both consumers' adoption suites. That is
+evidence, not a gate — and the difference is the point.
+
+**The order for the next repo**: create the repo, the ruleset, the
+environments, the SonarCloud project and its token FIRST; land the
+code through a PR that goes green; release only then. A first release
+must never precede a first gated merge — the one commit that most
+needs review is the one that defines the package.
