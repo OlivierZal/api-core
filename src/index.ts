@@ -6,6 +6,8 @@ export type {
   RequestLifecycleContext,
   RequestRetryEvent,
   RequestStartEvent,
+  SessionAPIConfig,
+  SessionAPIOptions,
   SettingManager,
   SyncCallback,
 } from './api/index.ts'
@@ -32,7 +34,7 @@ export type {
   UndefinedTolerant,
 } from './types/index.ts'
 
-export { SyncManager } from './api/index.ts'
+export { SessionAPI, SyncManager } from './api/index.ts'
 export { setting } from './decorators/index.ts'
 export {
   APIError,
