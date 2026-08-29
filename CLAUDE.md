@@ -106,10 +106,10 @@ Where the twins had drifted, this package settles the difference once:
   class's business. Its `name` stays typed `string`, not a literal —
   that is what lets `AuthenticationThrottledError` narrow it.
 - `AuthenticationThrottledError` was melcloud-only (heatzy's ledger
-  said "No AuthenticationThrottledError"). It comes here anyway: the
-  session mechanism that follows gates its login backoff on the
-  distinction between "password rejected" and "sign-ins refused", so
-  the mechanism cannot be extracted without it. heatzy simply never
+  said "No AuthenticationThrottledError"). It came here anyway: the
+  session mechanism gates its login backoff on the distinction between
+  "password rejected" and "sign-ins refused", so the mechanism could
+  not be extracted without it. heatzy simply never
   constructs it — an unconstructed export costs a consumer nothing.
 - The session mechanism's own six reconciliations are listed with it,
   under `SessionAPI` below — they belong to that move, not to this
@@ -124,9 +124,9 @@ on all four: it backs off on the throttled error, signs in with the
 credentials pair, and persists `expiry` / `loginBackoffUntil` /
 `password` / `username` through the decorator. They are
 mechanism-adjacent by the same logic that moved `HttpError` — the
-machinery that will follow gates on them — while the protocol
-vocabulary (which status means "throttled", which wire field carries
-the window) stays in each SDK.
+machinery that followed, `SessionAPI` below, gates on them — while the
+protocol vocabulary (which status means "throttled", which wire field
+carries the window) stays in each SDK.
 
 **The storage key is the accessor name, and that is a data contract.**
 `setting` resolves its key as `String(context.name)`, once at
