@@ -33,12 +33,12 @@ range.
 
 ## Subpaths
 
-| Import                                 | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@olivierzal/api-core`                 | Everything: `HttpClient`/`HttpError`/`HttpStatus`, the redaction engine (`createRedaction`, `BASE_SENSITIVE_KEYS`, `REDACTED`), the observability shells (`APICallRequestData`, `APICallResponseData`, `createAPICallErrorData`, `LifecycleEmitter`), the resilience primitives, `SyncManager`, `APIError`/`AuthenticationError`/`AuthenticationThrottledError`/`RateLimitError`, the `setting` accessor decorator, `LoginCredentials`, the lifecycle types |
-| `@olivierzal/api-core/fire-and-forget` | `fireAndForget` — the one sanctioned detach-and-log seam                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@olivierzal/api-core/temporal`        | `Temporal` + `Intl` — the single `temporal-polyfill` entry point                                                                                                                                                                                                                                                                                                                                                                                            |
-| `@olivierzal/api-core/time-units`      | `MS_PER_SECOND`, `MS_PER_MINUTE`, `MS_PER_DAY`, `SESSION_REFRESH_AHEAD_MS`                                                                                                                                                                                                                                                                                                                                                                                  |
+| Import                                 | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@olivierzal/api-core`                 | Everything: `HttpClient`/`HttpError`/`HttpStatus`, the redaction engine (`createRedaction`, `BASE_SENSITIVE_KEYS`, `REDACTED`), the observability shells (`APICallRequestData`, `APICallResponseData`, `createAPICallErrorData`, `LifecycleEmitter`), the resilience primitives, `SessionAPI` + `SyncManager`, `APIError`/`AuthenticationError`/`AuthenticationThrottledError`/`RateLimitError`, the `setting` accessor decorator, `LoginCredentials`, the lifecycle types |
+| `@olivierzal/api-core/fire-and-forget` | `fireAndForget` — the one sanctioned detach-and-log seam                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `@olivierzal/api-core/temporal`        | `Temporal` + `Intl` — the single `temporal-polyfill` entry point                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `@olivierzal/api-core/time-units`      | `MS_PER_SECOND`, `MS_PER_MINUTE`, `MS_PER_DAY`, `SESSION_REFRESH_AHEAD_MS`                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 `setting` persists a decorated accessor through your host's
 `SettingManager`, under a key that IS the accessor's name — renaming
@@ -86,6 +86,37 @@ Constructing an `HttpError`, `APICallRequestData`,
 `APICallResponseData` or `createAPICallErrorData` directly? Pass the
 same engine. Without one, the base vocabulary applies — generic
 carriers are always covered, protocol keys only where injected.
+
+## The session seam
+
+`SessionAPI` is the abstract session lifecycle and request pipeline:
+persisted credentials, the login-backoff gate, single-flight session
+refresh, the resilience pipeline around every request, and the
+sync-cycle template. Extend it, hand it what your protocol knows, and
+implement the twelve hooks (`doAuthenticate`, `getAuthHeaders`,
+`isAuthenticated`, `syncRegistry`, `enforceRegistrySync`, …):
+
+```ts title="session"
+class MyAPI extends SessionAPI<MySyncParams> {
+  public constructor(config: MyConfig = {}) {
+    super(config, {
+      // YOUR resolver, YOUR HttpClient subclass — the core takes the
+      // transport already built, so a host-supplied client is judged
+      // against the class that seats your redaction vocabulary.
+      transport: buildTransport(config.transport),
+      defaultSyncIntervalMinutes: 5,
+      syncCallback: async () => this.fetch(),
+      // Omit `rateLimitHours` for a wire that has never sent a 429;
+      // omit `logLabel` when one client per host needs no prefix.
+      authFailureStatuses: [HttpStatus.Unauthorized, HttpStatus.BadRequest],
+    })
+  }
+}
+```
+
+The four settings it persists are named by their accessors — `expiry`,
+`loginBackoffUntil`, `password`, `username` — so a host that already
+holds those keys keeps its stored values.
 
 ## Docs
 

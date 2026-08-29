@@ -6,7 +6,7 @@ consumer — adoption is a reviewed PR per release, never a range. ESM
 only, Node >= 22.20.
 
 The README speaks to the package's CONSUMER (install, subpaths, the
-vocabulary seam); this file speaks to its MAINTAINER. Doctrine evolves
+vocabulary and session seams); this file speaks to its MAINTAINER. Doctrine evolves
 HERE first — a rule stated in both files must say the same thing, and
 the README carries at most a one-line pointer at it.
 
@@ -106,11 +106,14 @@ Where the twins had drifted, this package settles the difference once:
   class's business. Its `name` stays typed `string`, not a literal —
   that is what lets `AuthenticationThrottledError` narrow it.
 - `AuthenticationThrottledError` was melcloud-only (heatzy's ledger
-  said "No AuthenticationThrottledError"). It comes here anyway: the
-  session mechanism that follows gates its login backoff on the
-  distinction between "password rejected" and "sign-ins refused", so
-  the mechanism cannot be extracted without it. heatzy simply never
+  said "No AuthenticationThrottledError"). It came here anyway: the
+  session mechanism gates its login backoff on the distinction between
+  "password rejected" and "sign-ins refused", so the mechanism could
+  not be extracted without it. heatzy simply never
   constructs it — an unconstructed export costs a consumer nothing.
+- The session mechanism's own six reconciliations are listed with it,
+  under `SessionAPI` below — they belong to that move, not to this
+  list.
 
 ## The session prerequisites — why these four, and the probe
 
@@ -121,9 +124,9 @@ on all four: it backs off on the throttled error, signs in with the
 credentials pair, and persists `expiry` / `loginBackoffUntil` /
 `password` / `username` through the decorator. They are
 mechanism-adjacent by the same logic that moved `HttpError` — the
-machinery that will follow gates on them — while the protocol
-vocabulary (which status means "throttled", which wire field carries
-the window) stays in each SDK.
+machinery that followed, `SessionAPI` below, gates on them — while the
+protocol vocabulary (which status means "throttled", which wire field
+carries the window) stays in each SDK.
 
 **The storage key is the accessor name, and that is a data contract.**
 `setting` resolves its key as `String(context.name)`, once at
@@ -159,6 +162,151 @@ depends on:
   does not reject them; the vitest `swcPlugin` (already adopted here
   before there was anything to transform) runs the 2022-03 protocol in
   the suites.
+
+## The session mechanism — `SessionAPI`
+
+`SessionAPI` is the session lifecycle and the request pipeline both
+SDKs carried: the persisted credentials and the login-backoff gate, the
+logOut-epoch protocol, the auth-lost / auth-restored episode tracking,
+single-flight `ensureSession`, `request` / `dispatch` and the policy
+composition around them, the sync-cycle trio (strict `runSyncCycle`,
+best-effort `runBestEffortSyncCycle`, and the epilogue that reschedules,
+re-applies a raced sign-out, or surfaces a loss), and the public
+lifecycle `authenticate` / `resumeSession` / `initialize` / `logOut` /
+`start` / `notifySync` / `clearSync` / `setSyncInterval` /
+`[Symbol.dispose]`. It arrived as melcloud-api's `BaseAPI` (54.0.0) and
+heatzy-api's inline copy inside `HeatzyAPI` (14.1.x) — the same
+machinery, one of the two spelled with `#private` members.
+
+**The seam is thirteen members, verified against BOTH SDKs before the
+move**: twelve abstract hooks — `clearPersistedSession`,
+`clearRegistry`, `doAuthenticate`, `enforceRegistrySync`,
+`getAuthHeaders`, `hasPersistedSession`, `isAuthenticated` (the one
+PUBLIC abstract), `needsSessionRefresh`, `performSessionRefresh`,
+`reauthenticate`, `reuseSucceeded`, `syncRegistry` — plus the virtual
+`logError` (melcloud Home overrides it to keep its `/context` 404 out of
+the call log). melcloud declared all thirteen already; heatzy carried
+each as a private method with the same body, so nothing was invented for
+the move. Everything that differed only by DATA became a constructor
+option: `SessionAPIOptions` is `{ defaultSyncIntervalMinutes,
+syncCallback, transport, authFailureStatuses?, logLabel?,
+rateLimitHours? }`, beside the user-facing `SessionAPIConfig`
+(`abortSignal`, `events`, `logger`, `settingManager`,
+`syncIntervalMinutes`), generic in the consumer's sync-params shape.
+
+**The replicated `unicorn/prefer-await` disable did not cross.** Both
+twins guard `ensureSession`'s single-flight memoization with an inline
+disable, because `.finally()` on the hook's promise is what the rule
+refuses. The core expresses the same semantics as a private `#refresh`
+whose `try`/`finally` releases the handle — identical single-flight
+behaviour, one fewer suppression. Existing disables are debt: removed
+when the code they guard is touched, never replicated.
+
+**The four persisted keys are written from HERE now.** `expiry` is
+`protected` (subclasses read and write it), `loginBackoffUntil`,
+`password` and `username` are private to the mechanism — all four
+declared as TS-`private`/`protected` `accessor`s, never `#private`
+ones, because `setting` resolves the key as `String(context.name)` and
+a `#` name would persist under `#loginBackoffUntil`.
+`tests/unit/session-api.test.ts` pins the literal strings a mock
+`SettingManager` observes on all three routes — the `set` keys, the
+`get` keys, and the `unset` deletions a sign-out issues — on top of
+`setting-decorator.test.ts`'s derivation rule.
+
+**`#armLoginBackoff` gates on `error instanceof AuthenticationError`,
+and the gate guards the LOGIN only.** Three clauses hold it: a rejected
+sign-in ARMS it (900 000 ms, or the throttle branch), a transport
+failure does NOT (the normal retry paths own those, and pausing
+sign-ins would mask a blip), and a failing post-auth registry sync does
+NOT either — the server already accepted the credentials, so locking
+the user out over a registry problem would be wrong. Only the `catch`
+around `doAuthenticate` can arm it.
+
+**`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
+the split is load-bearing in BOTH directions.** `tryReuseSession` calls
+the BEST-EFFORT `syncRegistry`: `initialize()` has no try/catch and
+every SDK's `create()` awaits it, so a propagating probe would turn a
+boot-time network blip into an app that refuses to start instead of one
+that degrades to "not authenticated yet". The enforced post-auth sync is
+the mirror image — it must propagate, or `authenticate()` resolves over
+an empty registry, which consumers read as "this account has no
+devices". Both halves are pinned as clauses of their own; melcloud's
+contract kernel did NOT catch a swap of the two hooks
+(mutation-proven), so this suite is where it is held.
+
+### What stayed out, and why
+
+- **`requestData`, `safeRequest`, `classifyError`,
+  `normalizeUnauthorized`, the `Result` type.** They sit on the
+  zod/Result boundary and would drag zod's type surface into this
+  package's `.d.ts`; the standing verdict above refuses a zod entry.
+- **The transport RESOLUTION (`instanceof HttpClient` +
+  `DEFAULT_TIMEOUT_MS`) — SECURITY-LOAD-BEARING.** Each SDK decides
+  whether a host-supplied `transport` is a usable client or a bag of
+  build options, and its check reads `instanceof <its own>
+HttpClient` — the thin subclass that seats the SDK's redaction
+  vocabulary. Moved here, that same check would read `instanceof
+HttpClient` against the CORE class, and so ACCEPT a host-prebuilt
+  bare core client carrying only `BASE_SENSITIVE_KEYS` where today the
+  SDK discards it and builds its own. That is exactly the failure class
+  of the 2026-08-21 credential leak: a transport whose thrown snapshots
+  miss the protocol's credential keys. `SessionAPI` therefore takes an
+  ALREADY-BUILT `HttpClient`, and each SDK keeps its resolver.
+- **`ensureAuthenticated` and `isRateLimited`.** melcloud-only
+  surfaces; moving them would widen heatzy's published class with
+  members it never asked for. `isRateLimited` needs the gate, so
+  `rateLimitGate` is `protected` here — and `undefined` when no rung
+  was built.
+- **The protected `syncManager` getter.** melcloud declared it; no
+  subclass in either SDK ever read it. The manager stays private.
+
+### The six reconciliations
+
+1. **`#runWithEvents` duration clock → `performance.now()`** (melcloud
+   used `Date.now()`, heatzy `Temporal.Now`). Same verdict, same reason
+   as `RetryGuard`'s window: a system-clock adjustment mid-request
+   would otherwise hand every observer a negative or wildly inflated
+   `durationMs`. The test seam differs from a wall-clock one ON
+   PURPOSE — `vi.setSystemTime()` moves `Date.now()` and leaves
+   `performance.now()` alone, which is what the clause asserts (a
+   year-long backwards jump mid-request still reports
+   `durationMs: 0`); only `vi.advanceTimersByTime` moves it.
+2. **Logger labelling → melcloud's asymmetry, byte for byte.**
+   `logLabel` is OPTIONAL: absent, the raw logger is used unwrapped
+   (heatzy's shape); present, every seat receives the labelled wrapper
+   — EXCEPT the `SyncManager`, which keeps the RAW logger because that
+   is what melcloud passes today. **Follow-up, deliberately not fixed
+   here:** that asymmetry is a latent bug — `Auto-sync failed:` reaches
+   a host running both dialects with no `[Classic]`/`[Home]` prefix. It
+   stays as-is because those strings land verbatim in user diagnostic
+   reports, and an incidental cleanup inside a neutrality-critical move
+   would make the before/after proof false. Fix it in its own PR, after
+   both adoptions land.
+3. **Throttle branch → melcloud's superset.**
+   `AuthenticationThrottledError` plus the announced-window resolver
+   (the server's own countdown wins, floored by nothing and capped by
+   the 2-hour ceiling, which is also the fallback when it announced
+   none) come here; heatzy inherits a branch it never constructs, which
+   costs it nothing.
+4. **`dispatch` per-call header merge → melcloud's general form.**
+   heatzy wrote the auth headers alone, calling the merge a dead branch
+   on its wire; the core carries the general form and this suite covers
+   it — including the clause that the auth headers WIN over a colliding
+   per-call header.
+5. **`[Symbol.dispose]` → melcloud's superset**: the sync manager AND
+   the retry guard.
+6. **The rate-limit rung is OPTIONAL**, built only when the subclass
+   passes `rateLimitHours` (heatzy's ledger refuses the gate outright:
+   the Gizwits wire has never surfaced a 429). Verified in
+   `src/resilience/policy.ts` before relying on it — `CompositePolicy`
+   reverses the array once and wraps innermost-first, so `[authRetry]`
+   runs exactly `authRetry.run(attempt)` and `[authRetry, transient]`
+   runs exactly `authRetry.run(() => transient.run(attempt))`:
+   byte-for-byte heatzy's hand-nesting.
+
+The class name is `SessionAPI`, settled: it names the MECHANISM rather
+than a position in either SDK's hierarchy, and leaves melcloud's
+`BaseAPI` free to stay `BaseAPI` on top of it.
 
 ## Runtime floors
 
