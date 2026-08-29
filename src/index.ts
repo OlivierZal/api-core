@@ -26,10 +26,21 @@ export type {
   RetryBackoffOptions,
   RetryTelemetry,
 } from './resilience/index.ts'
-export type { Resolved, UndefinedTolerant } from './types/index.ts'
+export type {
+  LoginCredentials,
+  Resolved,
+  UndefinedTolerant,
+} from './types/index.ts'
 
 export { SyncManager } from './api/index.ts'
-export { APIError, isAPIError, RateLimitError } from './errors/index.ts'
+export { setting } from './decorators/index.ts'
+export {
+  APIError,
+  AuthenticationError,
+  AuthenticationThrottledError,
+  isAPIError,
+  RateLimitError,
+} from './errors/index.ts'
 export { fireAndForget } from './fire-and-forget.ts'
 export {
   HttpClient,
