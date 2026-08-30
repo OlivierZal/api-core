@@ -185,9 +185,27 @@ move**: twelve abstract hooks — `clearPersistedSession`,
 PUBLIC abstract), `needsSessionRefresh`, `performSessionRefresh`,
 `reauthenticate`, `reuseSucceeded`, `syncRegistry` — plus the virtual
 `logError` (melcloud Home overrides it to keep its `/context` 404 out of
-the call log). melcloud declared all thirteen already; heatzy carried
-each as a private method with the same body, so nothing was invented for
-the move. Everything that differed only by DATA became a constructor
+the call log). melcloud declared all thirteen already. heatzy's shape is
+LOOSER than this section claimed until 2026-08-30, and the difference is
+the part of the move worth recording — re-verified against heatzy-api
+15.0.0, which still has not adopted `SessionAPI` (`HeatzyAPI` extends
+nothing and carries no `override` at all). Of the twelve abstract hooks,
+SEVEN are `#private` methods (`clearPersistedSession`, `clearRegistry`,
+`doAuthenticate`, `getAuthHeaders`, `needsSessionRefresh`,
+`performSessionRefresh`, `reauthenticate`), ONE is a public method
+(`isAuthenticated` — public there as it is here), and FOUR have no
+method of their own at all: they are inline expressions inside two
+OTHER methods. `enforceRegistrySync` is the bare `await
+this.#syncCycle()` that closes `#finishLogin`, while
+`hasPersistedSession`, `syncRegistry` and `reuseSucceeded` are the three
+successive statements of `#tryReuseSession` (`if (this.token === '')`,
+`await this.fetch()`, `return this.isAuthenticated()`). The virtual
+thirteenth, `logError`, IS a private method there. So nothing was
+invented for the move — every hook had a body — but four of them had to
+be NAMED, and that is what a reader comparing heatzy against the seam
+needs to know: four of the twelve are found by reading two methods, not
+by grepping for their names. Everything that differed only by DATA
+became a constructor
 option: `SessionAPIOptions` is `{ defaultSyncIntervalMinutes,
 syncCallback, transport, authFailureStatuses?, logLabel?,
 rateLimitHours? }`, beside the user-facing `SessionAPIConfig`
@@ -230,9 +248,22 @@ boot-time network blip into an app that refuses to start instead of one
 that degrades to "not authenticated yet". The enforced post-auth sync is
 the mirror image — it must propagate, or `authenticate()` resolves over
 an empty registry, which consumers read as "this account has no
-devices". Both halves are pinned as clauses of their own; melcloud's
-contract kernel did NOT catch a swap of the two hooks
-(mutation-proven), so this suite is where it is held.
+devices". Both halves are pinned as clauses of their own.
+
+melcloud's contract kernel NOW catches a swap in both directions, which
+it did not when the paragraph above was first written: its
+kernel-hardening pass (melcloud-api #1752) added the clauses that hold
+it. Re-run of the same mutation on 2026-08-30, against melcloud-api at
+54.1.0 — pointing `tryReuseSession` at the propagating hook fails
+"keeps the boot-time probe non-destructive when the wire is
+unavailable" on BOTH dialect legs; pointing the post-auth epilogue at
+the best-effort one fails "runs the enforced registry cycle on an
+accepted sign-in and rejects when it fails" and "never arms the login
+backoff when only the registry cycle failed", again on both. Keep this
+suite's clauses anyway: they witness a different thing. The kernel pins
+the split as the two SDKs WIRE it, through their own subclasses; these
+clauses pin it as the mechanism OFFERS it, which is what a third
+consumer would inherit.
 
 ### What stayed out, and why
 
