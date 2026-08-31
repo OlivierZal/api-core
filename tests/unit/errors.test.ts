@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { APIError, isAPIError, RateLimitError } from '../../src/errors/index.ts'
+import {
+  APIError,
+  AuthenticationError,
+  isAPIError,
+  RateLimitError,
+  RegistrySyncError,
+} from '../../src/errors/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 
 // The consumers' protocol errors extend this one hierarchy; a local
@@ -24,6 +30,21 @@ describe.concurrent('apiError hierarchy', () => {
     const cause = new Error('upstream')
     const error = new FakeProtocolError('wrapped', { cause })
 
+    expect(error.cause).toBe(cause)
+  })
+
+  it('registrySyncError preserves the enforced-sync failure as its cause and is no AuthenticationError', () => {
+    const cause = new Error('registry down')
+    const error = new RegistrySyncError('signed in, registry unverified', {
+      cause,
+    })
+
+    expect(error).toBeInstanceOf(RegistrySyncError)
+    expect(error).toBeInstanceOf(APIError)
+    // The whole point of the type: an enforced-sync failure must never
+    // classify as a refused credential.
+    expect(error).not.toBeInstanceOf(AuthenticationError)
+    expect(error.name).toBe('RegistrySyncError')
     expect(error.cause).toBe(cause)
   })
 

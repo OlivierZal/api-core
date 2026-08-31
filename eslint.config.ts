@@ -16,7 +16,10 @@ const WEBVIEW_FLOOR_FILES = [
 ]
 
 const config: Config[] = defineConfig([
-  { ignores: ['coverage/', 'dist/', 'docs/'] },
+  // `.claude/` holds agent-session worktrees (checkouts of this very
+  // repo): linting them double-reports every file and fails dependency
+  // resolution from the nested root.
+  { ignores: ['.claude/', 'coverage/', 'dist/', 'docs/'] },
   ...library({
     wireNamingEntries: [
       // HTTP names its statuses through reason phrases (IANA HTTP

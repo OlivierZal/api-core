@@ -42,6 +42,7 @@ export {
   AuthenticationThrottledError,
   isAPIError,
   RateLimitError,
+  RegistrySyncError,
 } from './errors/index.ts'
 export { fireAndForget } from './fire-and-forget.ts'
 export {
