@@ -176,7 +176,36 @@ lifecycle `authenticate` / `resumeSession` / `initialize` / `logOut` /
 `start` / `notifySync` / `clearSync` / `setSyncInterval` /
 `[Symbol.dispose]`. It arrived as melcloud-api's `BaseAPI` (54.0.0) and
 heatzy-api's inline copy inside `HeatzyAPI` (14.1.x) — the same
-machinery, one of the two spelled with `#private` members.
+machinery, one of the two spelled with `#private` members — and now
+carries melcloud's 55.0.0 shape (next paragraph).
+
+**The mechanism diverged from its source the day it was documented,
+which is why the catch-up must precede any adoption.** melcloud shipped
+55.0.0 while this section still said "as melcloud-api's `BaseAPI`
+(54.0.0)", and what 55.0.0 fixed was a defect the extraction had
+carried across: the 54.0.0 `resumeSession` read its verdict off
+`isAuthenticated()`, which reported a REFUSED re-sign-in over a live
+session as a successful resume — feeding the reactive auth-failure
+replay the very credential the server had just refused (on melcloud
+Classic, `reauthenticate()` IS `resumeSession`, and it deliberately
+does not clear first). The 55.0.0 shape judges by the SIGN-IN
+ROUND-TRIP instead: an `#acceptedSignIns` counter bumped the instant
+`doAuthenticate` resolves ("nothing below can un-accept it"), compared
+across the call by `#reportResumeFailure`. This package carries that
+mechanism, the per-dialect MAY on the reactive `clearPersistedSession`
+wipe (Classic's measured counter-example: a zone-level `GetSettings`
+on a shared building answers `401` while the same context key serves
+`/User/ListDevices` — 2026-08-26), and the enforced-sync `@throws` on
+`authenticate`. Both halves of the verdict are pinned in
+`session-api.test.ts` — "reports a refused re-sign-in as a failed
+resume, standing session or not" and "never replays a 401 when the
+re-sign-in was refused", mirroring melcloud's kernel clauses — and
+mutation-proved: reverting the verdict to `isAuthenticated()` fails
+exactly those two. Never restate the verdict as "judge by the
+session": that shorthand is HOW the defect happened, and melcloud's
+CLAUDE.md now forbids it. The standing rule this episode leaves: an
+extraction is not done when it lands — every source release cut after
+the move is reconciled HERE before any SDK adopts the core.
 
 **The seam is thirteen members, verified against BOTH SDKs before the
 move**: twelve abstract hooks — `clearPersistedSession`,
