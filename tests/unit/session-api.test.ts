@@ -138,6 +138,10 @@ class Harness extends SessionAPI<SyncParams> {
   // Ordered trace of the hooks the template actually called.
   public readonly seen: string[] = []
 
+  // melcloud Classic's wiring: its reactive recovery IS
+  // `resumeSession`, taken with the rejected credential still standing.
+  public shouldReauthenticateViaResume = false
+
   public shouldReuseSucceed = true
 
   public syncRegistryGate?: Promise<void> | undefined
@@ -311,6 +315,9 @@ class Harness extends SessionAPI<SyncParams> {
 
   protected async reauthenticate(): Promise<boolean> {
     this.seen.push('reauthenticate')
+    if (this.shouldReauthenticateViaResume) {
+      return this.resumeSession()
+    }
     await Promise.resolve()
     return this.isReauthenticated
   }
@@ -724,15 +731,43 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledWith('Session resume failed:', error)
     })
 
-    // A sign-in the server accepted IS a session, even when the sync
-    // that follows it throws: reporting a loss there would prompt the
-    // user to re-enter credentials that had just worked.
-    it('judges by the session when the enforced sync throws', async () => {
+    // One of the two shapes the catch judges — by the SIGN-IN
+    // ROUND-TRIP, not by the throw: an ACCEPTED credential whose
+    // enforced registry cycle then threw IS a resume, because the
+    // session it established stands. A `false` here would have
+    // `initialize()` emit a spurious `onAuthenticationLost`, prompting
+    // the user to re-enter credentials that had just worked.
+    it('reports an accepted sign-in as a resume even when the enforced sync throws', async () => {
       const store = withCredentials(createStore())
       using harness = new Harness({ settingManager: store.manager })
       harness.enforceError = new Error('registry broke')
 
       await expect(harness.resumeSession()).resolves.toBe(true)
+    })
+
+    // The other shape, and the one a session cannot judge: the server
+    // REFUSED the credentials while a session established before the
+    // attempt is still standing. A `true` there reports a re-sign-in
+    // that never happened, and the caller spends the credential the
+    // server has just rejected — when that caller is the reactive
+    // auth-failure path, the replay clause under "resilience rungs" is
+    // what it costs. The session itself is untouched: only the VERDICT
+    // is at stake, which is what makes the two shapes distinguishable
+    // by the sign-in round-trip alone.
+    it('reports a refused re-sign-in as a failed resume, standing session or not', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      seedSession(harness)
+      const error = new AuthenticationError('rejected')
+      harness.authError = error
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      // The refusal left the previous session alone — this clause is
+      // about the verdict, never about clearing.
+      expect(harness.isAuthenticated()).toBe(true)
+      expect(logger.error).toHaveBeenCalledWith('Session resume failed:', error)
     })
   })
 
@@ -1109,6 +1144,34 @@ describe(SessionAPI, () => {
       )
 
       expect(harness.seen).toStrictEqual(['reauthenticate'])
+    })
+
+    // The same rung when the recovery FAILS. `AuthRetryPolicy` replays
+    // on the strength of `reauthenticate()` alone, so a hook that
+    // answers `true` over a refused re-sign-in replays the request with
+    // the very credential the server just rejected — one
+    // guaranteed-auth-failure round-trip against an upstream that may
+    // throttle, and the retry guard makes it exactly one, which is how
+    // it stayed invisible. Wired as melcloud Classic wires it: its
+    // `reauthenticate()` IS `resumeSession`, and it deliberately does
+    // not clear first, so the rejected credential is still standing
+    // when the verdict is taken.
+    it('never replays a 401 when the re-sign-in was refused', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+      seedSession(harness)
+      harness.shouldReauthenticateViaResume = true
+      harness.authError = new AuthenticationError('rejected')
+      respondWith(HTTP_UNAUTHORIZED)
+      respondWith(HTTP_UNAUTHORIZED)
+
+      await expect(harness.callRequest('get', '/devices')).rejects.toThrow(
+        'Request failed with status code 401',
+      )
+
+      // The rejected round-trip, and nothing after it.
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(harness.seen).toStrictEqual(['reauthenticate', 'doAuthenticate'])
     })
 
     it('takes the auth-failure statuses the subclass declares', async () => {
