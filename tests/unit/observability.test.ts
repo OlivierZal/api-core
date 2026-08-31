@@ -264,6 +264,28 @@ describe('sensitive data redaction', () => {
     expect(headers.Cookie).toBe('******')
   })
 
+  it('redacts an inline query credential in the url', () => {
+    // The url serializes through `redactUrl`, not `redactValue`: the
+    // deep walk would read a one-pair query as a single `path?key` =
+    // value entry whose key names no secret, so `?token=…` — the shape
+    // an inline credential actually takes — would pass in clear.
+    const config = createConfig({ url: '/callback?token=secret-token' })
+    const call = new APICallRequestData(config)
+    const parsed = parseRecord(call.toString())
+
+    expect(parsed.url).toBe('/callback?token=******')
+  })
+
+  it('leaves the non-secret query parameters of a redacted url alone', () => {
+    const config = createConfig({
+      url: '/callback?token=secret-token&scope=all',
+    })
+    const call = new APICallRequestData(config)
+    const parsed = parseRecord(call.toString())
+
+    expect(parsed.url).toBe('/callback?token=******&scope=all')
+  })
+
   it('redacts sensitive keys inside form-encoded string bodies', () => {
     // A consumer can post credentials as a form-encoded string
     // (URLSearchParams.toString()). Without explicit string handling in

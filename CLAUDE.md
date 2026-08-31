@@ -73,9 +73,22 @@ to zod's for a 14-line win.
   headers/body) in its constructor, so no call site can retain a
   credential by forgetting to sanitize. Never move it to log time.
 - Every seat (HttpClient, HttpError, the APICall* shells,
-  `createAPICallErrorData`) takes the engine and defaults to the base —
-  a forgotten parameter degrades to generic-carrier coverage, never to
-  zero coverage.
+  `createAPICallErrorData`, and `SessionAPI` — its
+  `SessionAPIOptions.redaction` engine, forwarded at the `dispatch`
+  request/response lines, at `logError`, and at the transient-retry
+  line's URL) takes the engine and defaults to the base — a forgotten
+  parameter degrades to generic-carrier coverage, never to zero
+  coverage. `SessionAPI` was seated LATE: unpublished 1.1.0 built its
+  `dispatch` log lines with no engine, so an SDK credential key
+  (heatzy's `x-gizwits-user-token`) printed in clear from the core
+  while the SDK's bound shell masked it — caught by the heatzy
+  adoption agent against the packed tarball, pinned since by
+  `session-api.test.ts`'s dispatch-log redaction clauses.
+- The APICall* shells serialize `url` through `redactUrl`, never
+  `redactValue`: the deep walk reads a one-pair query as a single
+  `path?key` = value entry whose key names no secret, so an inline
+  credential (`?token=…`) passed in clear until the seat fix. Pinned in
+  `observability.test.ts`.
 - The extracted behavior is the UNION of what the twins did when they
   diverged: response BODY and URL-query redaction (melcloud 52.0.x) AND
   header/body/params redaction (heatzy 14.0.0), plus the JSON-text
@@ -216,11 +229,19 @@ record: armed in the resume-failure path by a DEFINITIVE
 `AuthenticationError` only — never `AuthenticationThrottledError`,
 whose lockout says nothing about the pair, and never a transport blip
 — lifted by the next accepted sign-in, and consulted by the sync-cycle
-epilogue through `#isSessionServable()` (`isAuthenticated() &&
-!refused`; melcloud also consults it from `ensureAuthenticated`, a
-surface this package does not carry), so a server-side password change
-surfaces `onAuthenticationLost` once per episode while the stale
-session deliberately stays stored. (2) `RegistrySyncError`
+epilogue through `isSessionServable()` (`isAuthenticated() &&
+!refused`), so a server-side password change surfaces
+`onAuthenticationLost` once per episode while the stale session
+deliberately stays stored. `isSessionServable()` is the record's ONE
+protected read — promoted from `#private` when melcloud's adoption
+showed `ensureAuthenticated` (a melcloud-only surface this package
+does not carry) must judge the RECORDED verdict on every rung, and
+without a seam it had mirrored the record in ~60 local lines that
+could diverge from the core's in extreme races. The record's writes
+stay this class's alone (`#isCredentialRefused` remains private), and
+the read's contract — true over a live unrefused session, false once
+refused, true again after the next accepted sign-in — is pinned in
+`session-api.test.ts` ("the protected servability read"). (2) `RegistrySyncError`
 (`src/errors/registry-sync.ts`, extending `APIError`, exported through
 both barrels): `authenticate()` wraps whatever `enforceRegistrySync()`
 propagates, the sync's own failure preserved as `cause`; a refused
@@ -269,7 +290,7 @@ by grepping for their names. Everything that differed only by DATA
 became a constructor
 option: `SessionAPIOptions` is `{ defaultSyncIntervalMinutes,
 syncCallback, transport, authFailureStatuses?, logLabel?,
-rateLimitHours? }`, beside the user-facing `SessionAPIConfig`
+rateLimitHours?, redaction? }`, beside the user-facing `SessionAPIConfig`
 (`abortSignal`, `events`, `logger`, `settingManager`,
 `syncIntervalMinutes`), generic in the consumer's sync-params shape.
 

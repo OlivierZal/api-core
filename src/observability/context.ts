@@ -65,12 +65,20 @@ export abstract class APICallLogData {
     const filtered = Object.fromEntries(
       logKeys
         .filter((key) => Object.hasOwn(this, key))
-        .map((key) => [
-          key,
-          this.#redaction.redactValue(
-            Object.getOwnPropertyDescriptor(this, key)?.value as unknown,
-          ),
-        ]),
+        .map((key) => {
+          const value = Object.getOwnPropertyDescriptor(this, key)
+            ?.value as unknown
+          return [
+            key,
+            // The URL rides the query-string vocabulary, not the deep
+            // one: `redactValue` reads a one-pair query as a single
+            // `path?key` = value entry whose key names no secret, so an
+            // inline credential (`?token=…`) would pass in clear.
+            key === 'url' && typeof value === 'string'
+              ? this.#redaction.redactUrl(value)
+              : this.#redaction.redactValue(value),
+          ]
+        }),
     )
     return JSON.stringify(filtered, null, 2)
   }
