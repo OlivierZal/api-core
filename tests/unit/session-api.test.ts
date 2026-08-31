@@ -8,7 +8,7 @@ import {
   vi,
 } from 'vitest'
 
-import type { SettingManager } from '../../src/api/types.ts'
+import type { Logger, SettingManager } from '../../src/api/types.ts'
 import type { LoginCredentials } from '../../src/types/index.ts'
 import {
   type SessionAPIConfig,
@@ -21,6 +21,7 @@ import {
   RegistrySyncError,
 } from '../../src/errors/index.ts'
 import { HttpClient } from '../../src/http/index.ts'
+import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 import { MS_PER_MINUTE } from '../../src/time-units.ts'
 import {
@@ -65,6 +66,13 @@ const HTTP_UNAUTHORIZED = 401
 const HTTP_TOO_MANY_REQUESTS = 429
 const HTTP_SERVER_ERROR = 500
 const HTTP_BAD_GATEWAY = 502
+
+// An SDK-style credential key and its value, standing in for the
+// consuming SDKs' own (`x-gizwits-user-token`, `contextkey`): outside
+// the base vocabulary on purpose, so only the injected engine can mask
+// it.
+const VENDOR_TOKEN_KEY = 'x-vendor-token'
+const VENDOR_SECRET = 'vendor-secret-value'
 
 const CONCURRENT_CALLERS = 4
 const RATE_LIMIT_HOURS = 2
@@ -201,6 +209,10 @@ class Harness extends SessionAPI<SyncParams> {
 
   public async callEnsureSession(): Promise<void> {
     await this.ensureSession()
+  }
+
+  public callIsSessionServable(): boolean {
+    return this.isSessionServable()
   }
 
   public callLogError(error: unknown): void {
@@ -360,6 +372,9 @@ const lastInit = (): FetchInit => {
 }
 
 const lastHeaders = (): Record<string, string> => cast(lastInit().headers)
+
+const loggedLines = (logger: Logger): string[] =>
+  vi.mocked(logger.log).mock.calls.map(([line]) => String(line))
 
 describe(SessionAPI, () => {
   afterEach(() => {
@@ -956,6 +971,43 @@ describe(SessionAPI, () => {
     )
   })
 
+  // The protected read a subclass surface consumes (melcloud's
+  // `ensureAuthenticated` gates on the RECORDED verdict, which
+  // `isAuthenticated()` alone cannot answer on a dialect whose refusal
+  // deliberately leaves the session material in place): pinned here so
+  // the seam has a contract of its own instead of one inferred from
+  // the sync-cycle epilogue. The record's writes stay the core's alone.
+  describe('the protected servability read', () => {
+    it('answers the recorded verdict, not the bare session, across a refusal episode', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+
+      await harness.authenticate(CREDENTIALS)
+
+      expect(harness.callIsSessionServable()).toBe(true)
+
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      // The refusal left the session standing; only the verdict moved.
+      expect(harness.isAuthenticated()).toBe(true)
+      expect(harness.callIsSessionServable()).toBe(false)
+
+      harness.authError = undefined
+
+      await harness.authenticate(CREDENTIALS)
+
+      expect(harness.callIsSessionServable()).toBe(true)
+    })
+
+    it('answers false while no session stands at all', () => {
+      using harness = new Harness()
+
+      expect(harness.callIsSessionServable()).toBe(false)
+    })
+  })
+
   describe('initialize and start', () => {
     it('stops after a successful session reuse', async () => {
       using harness = new Harness()
@@ -1258,6 +1310,125 @@ describe(SessionAPI, () => {
       await harness.callDispatch('get', '/devices')
 
       expect(logger.log).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // The dispatch log lines are a redaction seat like any other: they
+  // land verbatim in the diagnostic reports users paste into issues,
+  // so the SDK's injected vocabulary must reach them. Serializing them
+  // through the base engine while the SDK's engine sat one layer away
+  // is exactly the 2026-08-21 leak class — reproduced empirically
+  // against 1.1.0 with a protocol token header printing in clear.
+  describe('dispatch-log redaction', () => {
+    const vendorRedaction = createRedaction([VENDOR_TOKEN_KEY])
+
+    it('masks the injected vocabulary and the base carriers in both dispatch lines', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger }, { redaction: vendorRedaction })
+      mockFetch.mockResolvedValueOnce(
+        mockFetchResponse(
+          { ok: true },
+          { [VENDOR_TOKEN_KEY]: VENDOR_SECRET },
+          HTTP_OK,
+        ),
+      )
+
+      await harness.callDispatch('post', '/login', {
+        data: { password: 'hunter2' },
+        headers: {
+          [VENDOR_TOKEN_KEY]: VENDOR_SECRET,
+          authorization: 'Bearer base-secret',
+        },
+      })
+
+      const [requestLine = '', responseLine = ''] = loggedLines(logger)
+
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(requestLine).toContain(`"authorization": "${REDACTED}"`)
+      expect(requestLine).toContain(`"password": "${REDACTED}"`)
+      expect(requestLine).not.toContain(VENDOR_SECRET)
+      expect(requestLine).not.toContain('base-secret')
+      expect(responseLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(responseLine).not.toContain(VENDOR_SECRET)
+    })
+
+    // The degraded mode the non-negotiable promises: a forgotten
+    // parameter falls back to generic-carrier coverage, never to zero
+    // coverage — and not to vendor coverage either, which is what makes
+    // the clause above meaningful: the injected vocabulary, not the
+    // base, is what masked the vendor key there.
+    it('keeps the base carriers masked when no engine is injected', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      respondWith(HTTP_OK)
+
+      await harness.callDispatch('get', '/devices', {
+        headers: {
+          [VENDOR_TOKEN_KEY]: VENDOR_SECRET,
+          authorization: 'Bearer base-secret',
+        },
+      })
+
+      const [requestLine = ''] = loggedLines(logger)
+
+      expect(requestLine).toContain(`"authorization": "${REDACTED}"`)
+      expect(requestLine).not.toContain('base-secret')
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${VENDOR_SECRET}"`)
+    })
+
+    // The transport's construction-time redaction normally covers the
+    // error path — but the transport is host-suppliable, and a bare
+    // core client carries only the base vocabulary. The engine
+    // forwarded to `createAPICallErrorData` is what keeps the logged
+    // error line covered even then.
+    it('masks the injected vocabulary in the error line even when the transport missed it', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger }, { redaction: vendorRedaction })
+      mockFetch.mockResolvedValueOnce(
+        mockFetchResponse(
+          { [VENDOR_TOKEN_KEY]: VENDOR_SECRET },
+          {},
+          HTTP_SERVER_ERROR,
+        ),
+      )
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'Request failed with status code 500',
+      )
+
+      const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
+
+      expect(errorLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(errorLine).not.toContain(VENDOR_SECRET)
+    })
+
+    // The URL is request material too: a credential can ride inline in
+    // its query (`?token=…`), and the URL reaches the log through two
+    // routes — the dispatch lines' `url` field and the transient-retry
+    // line's interpolation.
+    it('masks an inline query credential on every line that carries the url', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      vi.useFakeTimers()
+      respondWith(HTTP_BAD_GATEWAY)
+      respondWith(HTTP_OK)
+
+      const pending = harness.callRequest(
+        'get',
+        `/callback?token=${VENDOR_SECRET}`,
+      )
+      await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS)
+
+      await expect(pending).resolves.toBe(HTTP_OK)
+
+      vi.useRealTimers()
+
+      expect(logger.log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `Transient server error on /callback?token=${REDACTED}: retry 1`,
+        ),
+      )
+      expect(loggedLines(logger).join('\n')).not.toContain(VENDOR_SECRET)
     })
   })
 

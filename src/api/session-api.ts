@@ -14,8 +14,10 @@ import {
   isHttpError,
 } from '../http/index.ts'
 import {
+  type Redaction,
   APICallRequestData,
   APICallResponseData,
+  baseRedaction,
   createAPICallErrorData,
   LifecycleEmitter,
 } from '../observability/index.ts'
@@ -166,6 +168,16 @@ export interface SessionAPIOptions {
    */
   readonly rateLimitHours?: number | undefined
   /**
+   * Redaction engine bound to the SDK's sensitive-key vocabulary,
+   * applied to every request/response log line this class emits —
+   * without it those lines redact through the base vocabulary only, and
+   * a protocol credential key (`x-gizwits-user-token`, `contextkey`)
+   * prints in clear into the diagnostic reports users paste into
+   * issues. Defaults to the base engine, so a forgotten parameter
+   * degrades to generic-carrier coverage, never to zero coverage.
+   */
+  readonly redaction?: Redaction | undefined
+  /**
    * Sync runner the auto-timer drives.
    */
   readonly syncCallback: () => Promise<unknown>
@@ -242,6 +254,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   readonly #rateLimitPolicy: RateLimitPolicy | undefined
 
+  // The vocabulary every serialization seat in this class forwards to
+  // the APICall* shells; never read at log time from anywhere else.
+  readonly #redaction: Redaction
+
   // Single in-flight refresh handle. Set when the first `ensureSession`
   // call detects an expired session, cleared when the refresh resolves
   // (success or failure). Subsequent concurrent callers await the same
@@ -260,7 +276,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // round-trip and read the shared attempt's verdict.
   #resumePromise: Promise<boolean> | null = null
 
-  readonly #retryGuard: RetryGuard
+  // Initialized at the declaration — it depends on nothing the
+  // constructor receives, and the constructor's statement budget is
+  // spent on the seats that do.
+  readonly #retryGuard = new RetryGuard(DEFAULT_AUTH_RETRY_COOLDOWN_MS)
 
   readonly #syncManager: SyncManager
 
@@ -292,6 +311,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @param root1.defaultSyncIntervalMinutes - Subclass sync cadence default.
    * @param root1.logLabel - Optional label prefixed to every log line.
    * @param root1.rateLimitHours - Rate-limit window; omit to build no gate.
+   * @param root1.redaction - Redaction engine for the emitted log lines; defaults to the base vocabulary.
    * @param root1.syncCallback - Sync runner the auto-timer drives.
    * @param root1.transport - The already-built HTTP transport.
    */
@@ -308,6 +328,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       defaultSyncIntervalMinutes,
       logLabel,
       rateLimitHours,
+      redaction = baseRedaction,
       syncCallback,
       transport,
     }: SessionAPIOptions,
@@ -325,7 +346,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       this.rateLimitGate === undefined
         ? undefined
         : new RateLimitPolicy(this.rateLimitGate, this.logger)
-    this.#retryGuard = new RetryGuard(DEFAULT_AUTH_RETRY_COOLDOWN_MS)
+    this.#redaction = redaction
     this.#transport = transport
     // The RAW logger, not the labelled one: the auto-sync failure line
     // is unlabelled today in the only client that carries a label, and
@@ -703,9 +724,13 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       ...(this.abortSignal !== undefined && { signal: this.abortSignal }),
       url,
     }
-    this.logger.log(String(new APICallRequestData(requestConfig)))
+    this.logger.log(
+      String(new APICallRequestData(requestConfig, this.#redaction)),
+    )
     const response = await this.#transport.request<T>(requestConfig)
-    this.logger.log(String(new APICallResponseData(response, requestConfig)))
+    this.logger.log(
+      String(new APICallResponseData(response, requestConfig, this.#redaction)),
+    )
     return response
   }
 
@@ -734,9 +759,25 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     await this.#refreshPromise
   }
 
+  /**
+   * The composite verdict every loss-surfacing path consults: a session
+   * stands AND the stored credential has not been definitively refused
+   * since a sign-in was last accepted. `isAuthenticated()` alone cannot
+   * say that on a dialect whose refusal deliberately leaves the session
+   * material in place — the session answers "a session stands", never
+   * "the credential does". Protected so a subclass surface that must
+   * judge the RECORDED verdict (melcloud's `ensureAuthenticated`) reads
+   * this record instead of mirroring it; the record's writes stay this
+   * class's alone.
+   * @returns `true` while the session is servable.
+   */
+  protected isSessionServable(): boolean {
+    return this.isAuthenticated() && !this.#isCredentialRefused
+  }
+
   protected logError(error: unknown): void {
     if (isHttpError(error)) {
-      this.logger.error(String(createAPICallErrorData(error)))
+      this.logger.error(String(createAPICallErrorData(error, this.#redaction)))
     }
   }
 
@@ -901,8 +942,11 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
               error: unknown,
               delayMs: number,
             ): void => {
+              // The URL is request material like any other: a token
+              // can ride inline in its query (`?code=…`), so it goes
+              // through the vocabulary before reaching the log line.
               this.logger.log(
-                `Transient server error on ${context.url}: retry ${String(retryAttempt)} in ${String(delayMs)} ms`,
+                `Transient server error on ${this.#redaction.redactUrl(context.url)}: retry ${String(retryAttempt)} in ${String(delayMs)} ms`,
               )
               this.events.emitRetry({
                 ...context,
@@ -977,16 +1021,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return (
       Number.isFinite(until) && Temporal.Now.instant().epochMilliseconds < until
     )
-  }
-
-  // The composite verdict every loss-surfacing path consults: a
-  // session only counts as signed-in while no definitive refusal
-  // stands against the stored credential. `isAuthenticated()` alone
-  // cannot say that on a dialect whose refusal deliberately leaves the
-  // session material in place — the session answers "a session
-  // stands", never "the credential does".
-  #isSessionServable(): boolean {
-    return this.isAuthenticated() && !this.#isCredentialRefused
   }
 
   // A live session marks any earlier loss episode as recovered —
@@ -1105,7 +1139,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       this.clearRegistry()
       return
     }
-    if (this.#isSessionServable()) {
+    if (this.isSessionServable()) {
       this.#markLossRecovered()
       this.#syncManager.planNext()
       return
