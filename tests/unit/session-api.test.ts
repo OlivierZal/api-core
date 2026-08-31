@@ -18,6 +18,7 @@ import {
 import {
   AuthenticationError,
   AuthenticationThrottledError,
+  RegistrySyncError,
 } from '../../src/errors/index.ts'
 import { HttpClient } from '../../src/http/index.ts'
 import { Temporal } from '../../src/temporal.ts'
@@ -65,6 +66,7 @@ const HTTP_TOO_MANY_REQUESTS = 429
 const HTTP_SERVER_ERROR = 500
 const HTTP_BAD_GATEWAY = 502
 
+const CONCURRENT_CALLERS = 4
 const RATE_LIMIT_HOURS = 2
 const BACKOFF_FAILURE_MS = 900_000
 const BACKOFF_THROTTLE_MS = 7_200_000
@@ -123,9 +125,13 @@ class Harness extends SessionAPI<SyncParams> {
 
   public enforceError?: Error | undefined
 
+  public enforceGate?: Promise<void> | undefined
+
   public isReauthenticated = false
 
   public onDoAuthenticate?: (() => void) | undefined
+
+  public onEnforceRegistrySync?: (() => void) | undefined
 
   public onReuseSucceeded?: (() => void) | undefined
 
@@ -285,7 +291,8 @@ class Harness extends SessionAPI<SyncParams> {
   // empty registry.
   protected async enforceRegistrySync(): Promise<void> {
     this.seen.push('enforceRegistrySync')
-    await Promise.resolve()
+    this.onEnforceRegistrySync?.()
+    await (this.enforceGate ?? Promise.resolve())
     const failure = this.enforceError ?? this.wireError
     if (failure !== undefined) {
       throw failure
@@ -557,7 +564,7 @@ describe(SessionAPI, () => {
       harness.enforceError = new AuthenticationError('registry refused')
 
       await expect(harness.authenticate(CREDENTIALS)).rejects.toThrow(
-        'registry refused',
+        RegistrySyncError,
       )
 
       expect(store.values.has('loginBackoffUntil')).toBe(false)
@@ -771,6 +778,184 @@ describe(SessionAPI, () => {
     })
   })
 
+  // `resumeSession` is single-flight, one lifecycle layer above the
+  // refresh handle: the paths that race at boot (a background
+  // `initialize`, the first request's `ensureSession`, a reactive
+  // auth failure) collapse onto ONE sign-in round-trip — without the
+  // memo, two callers could both pass the login-backoff gate before
+  // either refusal armed it, against an upstream whose measured
+  // throttle threshold was four sign-ins in seventy seconds. Every
+  // caller's verdict describes the one shared attempt.
+  describe('resumeSession single-flight', () => {
+    it.each([
+      {
+        error: undefined,
+        expectedHooks: ['doAuthenticate', 'enforceRegistrySync'],
+        isResumed: true,
+        label: 'accepted',
+      },
+      {
+        error: new AuthenticationError('rejected'),
+        expectedHooks: ['doAuthenticate'],
+        isResumed: false,
+        label: 'refused',
+      },
+    ])(
+      'collapses concurrent callers onto one $label sign-in round-trip',
+      async ({ error, expectedHooks, isResumed }) => {
+        const store = withCredentials(createStore())
+        using harness = new Harness({ settingManager: store.manager })
+        harness.authError = error
+
+        const verdicts = await Promise.all(
+          Array.from({ length: CONCURRENT_CALLERS }, async () =>
+            harness.resumeSession(),
+          ),
+        )
+
+        expect(verdicts).toStrictEqual(
+          Array.from({ length: CONCURRENT_CALLERS }, () => isResumed),
+        )
+        expect(harness.seen).toStrictEqual(expectedHooks)
+      },
+    )
+
+    it('releases the in-flight handle once the attempt settles', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+      await expect(harness.resumeSession()).resolves.toBe(true)
+
+      expect(harness.seen).toStrictEqual([
+        'doAuthenticate',
+        'enforceRegistrySync',
+        'doAuthenticate',
+        'enforceRegistrySync',
+      ])
+    })
+
+    // The branch the concurrent clauses cannot reach: a caller joining
+    // AFTER the sign-in verdict, while the enforced registry sync
+    // still runs — it must read the determined verdict instead of
+    // awaiting the shared promise, because the one real caller in that
+    // window is the reactive auth-failure path the enforced sync
+    // itself triggered, and awaiting there would wait on its own
+    // caller.
+    it('answers a caller joining after the sign-in verdict without awaiting the enforced sync', async () => {
+      const gate = Promise.withResolvers<undefined>()
+      const syncStarted = Promise.withResolvers<undefined>()
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+      harness.enforceGate = gate.promise
+      harness.onEnforceRegistrySync = (): void => {
+        syncStarted.resolve(undefined)
+      }
+
+      const shared = harness.resumeSession()
+      // Let the sign-in round-trip resolve and the enforced sync
+      // start; the flight is still open when the second caller joins.
+      await syncStarted.promise
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+
+      gate.resolve(undefined)
+
+      await expect(shared).resolves.toBe(true)
+
+      expect(harness.seen).toStrictEqual([
+        'doAuthenticate',
+        'enforceRegistrySync',
+      ])
+    })
+  })
+
+  // The refusal is RECORDED even though the stored session is not
+  // cleared (a refusal changes the verdict, never the session):
+  // without the record, the loss-surfacing epilogue keyed on
+  // `isAuthenticated()` alone, so a server-side password change left
+  // the host reading "signed in" over a dead account indefinitely —
+  // `onAuthenticationLost` could never fire while the stale session
+  // stood.
+  describe('credential-refusal verdict', () => {
+    it('surfaces onAuthenticationLost once per episode when a cycle settles on a refused credential over a standing session', async () => {
+      const store = withCredentials(createStore())
+      const onAuthenticationLost = vi.fn<() => void>()
+      using harness = new Harness({
+        events: { onAuthenticationLost },
+        settingManager: store.manager,
+      })
+      await harness.authenticate(CREDENTIALS)
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      // The cycle epilogue owns the surfacing, so nothing has been
+      // announced yet — and the session itself still stands: the
+      // verdict, not the store, changed.
+      expect(onAuthenticationLost).not.toHaveBeenCalled()
+      expect(harness.isAuthenticated()).toBe(true)
+
+      await harness.fetchMutable()
+      await harness.fetchMutable()
+
+      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+    })
+
+    it('serves the session again and announces the recovery once a sign-in is accepted after a refusal', async () => {
+      const store = withCredentials(createStore())
+      const onAuthenticationLost = vi.fn<() => void>()
+      const onAuthenticationRestored = vi.fn<() => void>()
+      using harness = new Harness({
+        events: { onAuthenticationLost, onAuthenticationRestored },
+        settingManager: store.manager,
+      })
+      await harness.authenticate(CREDENTIALS)
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      await harness.fetchMutable()
+      harness.authError = undefined
+
+      await harness.authenticate(CREDENTIALS)
+      await harness.fetchMutable()
+
+      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+      expect(onAuthenticationRestored).toHaveBeenCalledTimes(1)
+    })
+
+    // Neither shape is a verdict on the pair: a throttle refuses the
+    // ATTEMPT while saying nothing about the credentials (asking the
+    // user to re-log would keep the lockout alive), and a transport
+    // failure says nothing at all.
+    it.each([
+      {
+        error: new AuthenticationThrottledError('throttled'),
+        label: 'throttled',
+      },
+      { error: new TypeError('fetch failed'), label: 'failed at transport' },
+    ])(
+      'keeps serving the standing session when a re-sign-in merely $label',
+      async ({ error }) => {
+        const store = withCredentials(createStore())
+        const onAuthenticationLost = vi.fn<() => void>()
+        using harness = new Harness({
+          events: { onAuthenticationLost },
+          settingManager: store.manager,
+        })
+        await harness.authenticate(CREDENTIALS)
+        harness.authError = error
+
+        await expect(harness.resumeSession()).resolves.toBe(false)
+
+        await harness.fetchMutable()
+
+        expect(onAuthenticationLost).not.toHaveBeenCalled()
+      },
+    )
+  })
+
   describe('initialize and start', () => {
     it('stops after a successful session reuse', async () => {
       using harness = new Harness()
@@ -884,13 +1069,45 @@ describe(SessionAPI, () => {
       using harness = new Harness()
       harness.wireError = new Error('offline')
 
-      await expect(harness.authenticate(CREDENTIALS)).rejects.toThrow('offline')
+      await expect(harness.authenticate(CREDENTIALS)).rejects.toThrow(
+        RegistrySyncError,
+      )
 
       expect(harness.seen).toStrictEqual([
         'doAuthenticate',
         'enforceRegistrySync',
       ])
       expect(harness.registry).toStrictEqual([])
+    })
+
+    // The enforced-sync failure carries its own TYPE because consumers
+    // could not tell it from a refused credential without re-deriving
+    // the verdict from `isAuthenticated()` — the judge-by-the-session
+    // discriminator this mechanism already retired once, with a real
+    // false positive: a transport failure during a sign-in over a
+    // PRE-EXISTING live session (a user switching accounts) reads
+    // "signed in, stale list" while the new pair was never accepted.
+    it('wraps an enforced-sync failure in RegistrySyncError, the sync failure preserved as its cause', async () => {
+      using harness = new Harness()
+      const failure = new Error('registry broke')
+      harness.enforceError = failure
+
+      const signIn = harness.authenticate(CREDENTIALS)
+
+      await expect(signIn).rejects.toBeInstanceOf(RegistrySyncError)
+      // The wrap adds the type without eating the evidence: the sync's
+      // own failure stays readable on `cause`.
+      await expect(signIn).rejects.toMatchObject({ cause: failure })
+    })
+
+    it('never wraps a refused credential in RegistrySyncError', async () => {
+      using harness = new Harness()
+      harness.authError = new AuthenticationError('rejected')
+
+      const signIn = harness.authenticate(CREDENTIALS)
+
+      await expect(signIn).rejects.toBeInstanceOf(AuthenticationError)
+      await expect(signIn).rejects.not.toBeInstanceOf(RegistrySyncError)
     })
   })
 

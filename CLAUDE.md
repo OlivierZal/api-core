@@ -177,7 +177,7 @@ lifecycle `authenticate` / `resumeSession` / `initialize` / `logOut` /
 `[Symbol.dispose]`. It arrived as melcloud-api's `BaseAPI` (54.0.0) and
 heatzy-api's inline copy inside `HeatzyAPI` (14.1.x) — the same
 machinery, one of the two spelled with `#private` members — and now
-carries melcloud's 55.0.0 shape (next paragraph).
+carries melcloud's AMENDED 55.0.0 shape (next two paragraphs).
 
 **The mechanism diverged from its source the day it was documented,
 which is why the catch-up must precede any adoption.** melcloud shipped
@@ -206,6 +206,38 @@ session": that shorthand is HOW the defect happened, and melcloud's
 CLAUDE.md now forbids it. The standing rule this episode leaves: an
 extraction is not done when it lands — every source release cut after
 the move is reconciled HERE before any SDK adopts the core.
+
+**The supersession recurred within 24 hours, which makes that rule
+load-bearing, not commemorative.** The day after the 55.0.0 catch-up
+landed (#9), melcloud amended its still-unreleased 55.0.0 with three
+more session-mechanism fixes (melcloud-api #1759), and SessionAPI
+carried all three before any adoption. (1) The `#isCredentialRefused`
+record: armed in the resume-failure path by a DEFINITIVE
+`AuthenticationError` only — never `AuthenticationThrottledError`,
+whose lockout says nothing about the pair, and never a transport blip
+— lifted by the next accepted sign-in, and consulted by the sync-cycle
+epilogue through `#isSessionServable()` (`isAuthenticated() &&
+!refused`; melcloud also consults it from `ensureAuthenticated`, a
+surface this package does not carry), so a server-side password change
+surfaces `onAuthenticationLost` once per episode while the stale
+session deliberately stays stored. (2) `RegistrySyncError`
+(`src/errors/registry-sync.ts`, extending `APIError`, exported through
+both barrels): `authenticate()` wraps whatever `enforceRegistrySync()`
+propagates, the sync's own failure preserved as `cause`; a refused
+credential is NEVER wrapped — it stays `AuthenticationError`. (3) The
+`resumeSession` single-flight: the `#resumePromise` memo with the
+`#resumeAcceptedBefore` counter snapshot, so N concurrent lifecycle
+callers share ONE `doAuthenticate` and a caller joining after the
+accepted verdict answers without awaiting the enforced sync still
+running behind it (the one real caller in that window is the reactive
+auth-failure path that sync itself triggered — do not "simplify" that
+branch into an await). All three are pinned in `session-api.test.ts`
+(the arm/clear/consult triangle with the throttle and transport
+exclusions, the wrap-with-cause + never-wraps-refusal pair, N
+concurrent resumes → one `doAuthenticate`) and mutation-proved:
+eleven mutations, each killed by its named clause. Twice in 24 hours
+is a pattern, not an accident — reconcile every melcloud release here
+BEFORE any SDK adopts the core.
 
 **The seam is thirteen members, verified against BOTH SDKs before the
 move**: twelve abstract hooks — `clearPersistedSession`,
