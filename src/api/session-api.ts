@@ -348,12 +348,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         : new RateLimitPolicy(this.rateLimitGate, this.logger)
     this.#redaction = redaction
     this.#transport = transport
-    // The RAW logger, not the labelled one: the auto-sync failure line
-    // is unlabelled today in the only client that carries a label, and
-    // those strings land verbatim in user diagnostic reports.
+    // The labelled logger, like every other seat: a host running two
+    // labelled clients must see which one a diagnostic report's
+    // auto-sync line came from (see CLAUDE.md, reconciliation 2).
     this.#syncManager = new SyncManager(
       syncCallback,
-      logger,
+      this.logger,
       syncIntervalMinutes ?? defaultSyncIntervalMinutes,
     )
     this.#authRetryPolicy = new AuthRetryPolicy(

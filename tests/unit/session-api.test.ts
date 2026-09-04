@@ -406,13 +406,37 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledWith('[Test]', 'boom')
     })
 
-    // Preserved asymmetry, not an oversight: the labelled logger goes
-    // to every seat EXCEPT the sync manager, which keeps the raw one —
-    // these strings land verbatim in user diagnostic reports, so the
-    // move reproduces them byte for byte.
-    it('hands the auto-sync manager the raw logger, not the labelled one', async () => {
+    // The sync manager is a seat like any other: it receives the SAME
+    // labelled logger, so a host running two labelled clients can tell
+    // which one a diagnostic report's auto-sync line came from. (The
+    // manager kept the RAW logger until 2026-09-05 — a deliberate
+    // asymmetry preserved through the extraction's neutrality proof,
+    // whose recorded deferral expired when both adoptions landed.)
+    it('hands the auto-sync manager the labelled logger, like every other seat', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger }, { logLabel: '[Test]' })
+      const error = new Error('auto-sync broke')
+      harness.autoSyncError = error
+      vi.useFakeTimers()
+
+      harness.setSyncInterval(1)
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+      vi.useRealTimers()
+
+      expect(logger.error).toHaveBeenCalledWith(
+        '[Test]',
+        'Auto-sync failed:',
+        error,
+      )
+    })
+
+    // The no-label half of the same contract: a host that configures no
+    // label (heatzy's shape) gets the raw logger unwrapped, so its
+    // auto-sync failure line stays byte-identical to what it emitted
+    // before the manager joined the labelled seats.
+    it('keeps the auto-sync failure line unprefixed when no label is configured', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
       const error = new Error('auto-sync broke')
       harness.autoSyncError = error
       vi.useFakeTimers()
