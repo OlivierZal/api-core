@@ -111,13 +111,21 @@ Where the twins had drifted, this package settles the difference once:
   protocol-neutral docs.
 - `parseBody` uses heatzy's single emptiness check (a 204 and a
   `content-length: 0` body both read back as empty text).
-- `CompositePolicy` stays (melcloud composes with it; heatzy nests
-  `run` calls directly and simply doesn't import it).
+- `CompositePolicy` stays, and the composition lives HERE now:
+  `SessionAPI`'s per-request pipeline composes it, and both SDKs —
+  subclasses of `SessionAPI` since their 2026-09-04 adoptions — reach
+  it without importing it. (Pre-extraction, melcloud composed with it
+  and heatzy hand-nested `run` calls; reconciliation 6 under
+  `SessionAPI` below verifies the equivalence byte for byte.)
 - `AuthenticationError`'s doc is the protocol-neutral union of the
   twins' (melcloud named the 401 path, heatzy named Gizwits' 400/401);
   which statuses count is `AuthRetryPolicy`'s parameter, not the
   class's business. Its `name` stays typed `string`, not a literal —
-  that is what lets `AuthenticationThrottledError` narrow it.
+  that is what lets `AuthenticationThrottledError` narrow it. The doc
+  names that subclass in code font, never `{@link}`: heatzy re-exports
+  the class WITHOUT the subclass, so a hard link cannot resolve in its
+  `.d.ts` — the code-font name is what lets its shim stay a plain
+  re-export.
 - `AuthenticationThrottledError` was melcloud-only (heatzy's ledger
   said "No AuthenticationThrottledError"). It came here anyway: the
   session mechanism gates its login backoff on the distinction between
@@ -190,7 +198,10 @@ lifecycle `authenticate` / `resumeSession` / `initialize` / `logOut` /
 `[Symbol.dispose]`. It arrived as melcloud-api's `BaseAPI` (54.0.0) and
 heatzy-api's inline copy inside `HeatzyAPI` (14.1.x) — the same
 machinery, one of the two spelled with `#private` members — and now
-carries melcloud's AMENDED 55.0.0 shape (next two paragraphs).
+carries melcloud's AMENDED 55.0.0 shape (next two paragraphs). Since
+2026-09-04 BOTH SDKs subclass it: melcloud's `BaseAPI` and heatzy's
+`HeatzyAPI` extend `SessionAPI`, and the machinery below has no other
+copy anywhere in the family.
 
 **The mechanism diverged from its source the day it was documented,
 which is why the catch-up must precede any adoption.** melcloud shipped
@@ -261,31 +272,36 @@ is a pattern, not an accident — reconcile every melcloud release here
 BEFORE any SDK adopts the core.
 
 **The seam is thirteen members, verified against BOTH SDKs before the
-move**: twelve abstract hooks — `clearPersistedSession`,
+move, and BOTH SDKs implement it through `extends SessionAPI` since
+their 2026-09-04 adoptions**: twelve abstract hooks —
+`clearPersistedSession`,
 `clearRegistry`, `doAuthenticate`, `enforceRegistrySync`,
 `getAuthHeaders`, `hasPersistedSession`, `isAuthenticated` (the one
 PUBLIC abstract), `needsSessionRefresh`, `performSessionRefresh`,
 `reauthenticate`, `reuseSucceeded`, `syncRegistry` — plus the virtual
 `logError` (melcloud Home overrides it to keep its `/context` 404 out of
-the call log). melcloud declared all thirteen already. heatzy's shape is
-LOOSER than this section claimed until 2026-08-30, and the difference is
-the part of the move worth recording — re-verified against heatzy-api
-15.0.0, which still has not adopted `SessionAPI` (`HeatzyAPI` extends
-nothing and carries no `override` at all). Of the twelve abstract hooks,
-SEVEN are `#private` methods (`clearPersistedSession`, `clearRegistry`,
+the call log). melcloud declared all thirteen already, so its adoption
+was a re-point. heatzy's pre-adoption shape was LOOSER than this section
+claimed until 2026-08-30, and the difference is the part of the move
+worth recording — measured against heatzy-api 15.0.0, the last release
+before its adoption, whose `HeatzyAPI` extended nothing and carried no
+`override` at all. Of the twelve abstract hooks,
+SEVEN were `#private` methods (`clearPersistedSession`, `clearRegistry`,
 `doAuthenticate`, `getAuthHeaders`, `needsSessionRefresh`,
-`performSessionRefresh`, `reauthenticate`), ONE is a public method
-(`isAuthenticated` — public there as it is here), and FOUR have no
-method of their own at all: they are inline expressions inside two
-OTHER methods. `enforceRegistrySync` is the bare `await
-this.#syncCycle()` that closes `#finishLogin`, while
-`hasPersistedSession`, `syncRegistry` and `reuseSucceeded` are the three
+`performSessionRefresh`, `reauthenticate`), ONE was a public method
+(`isAuthenticated` — public there as it is here), and FOUR had no
+method of their own at all: they were inline expressions inside two
+OTHER methods. `enforceRegistrySync` was the bare `await
+this.#syncCycle()` that closed `#finishLogin`, while
+`hasPersistedSession`, `syncRegistry` and `reuseSucceeded` were the
+three
 successive statements of `#tryReuseSession` (`if (this.token === '')`,
 `await this.fetch()`, `return this.isAuthenticated()`). The virtual
-thirteenth, `logError`, IS a private method there. So nothing was
+thirteenth, `logError`, WAS a private method there. So nothing was
 invented for the move — every hook had a body — but four of them had to
-be NAMED, and that is what a reader comparing heatzy against the seam
-needs to know: four of the twelve are found by reading two methods, not
+be NAMED, and naming them is what heatzy's adoption did: a reader
+comparing its pre-adoption code against the seam finds four of the
+twelve by reading two methods, not
 by grepping for their names. Everything that differed only by DATA
 became a constructor
 option: `SessionAPIOptions` is `{ defaultSyncIntervalMinutes,
@@ -384,17 +400,24 @@ HttpClient` against the CORE class, and so ACCEPT a host-prebuilt
    `performance.now()` alone, which is what the clause asserts (a
    year-long backwards jump mid-request still reports
    `durationMs: 0`); only `vi.advanceTimersByTime` moves it.
-2. **Logger labelling → melcloud's asymmetry, byte for byte.**
+2. **Logger labelling → symmetric since 2026-09-05; the move carried
+   melcloud's asymmetry byte for byte until its deferral expired.**
    `logLabel` is OPTIONAL: absent, the raw logger is used unwrapped
-   (heatzy's shape); present, every seat receives the labelled wrapper
-   — EXCEPT the `SyncManager`, which keeps the RAW logger because that
-   is what melcloud passes today. **Follow-up, deliberately not fixed
-   here:** that asymmetry is a latent bug — `Auto-sync failed:` reaches
-   a host running both dialects with no `[Classic]`/`[Home]` prefix. It
-   stays as-is because those strings land verbatim in user diagnostic
-   reports, and an incidental cleanup inside a neutrality-critical move
-   would make the before/after proof false. Fix it in its own PR, after
-   both adoptions land.
+   (heatzy's shape — a no-label host's output stays byte-identical);
+   present, EVERY seat receives the labelled wrapper, the `SyncManager`
+   included. The manager originally kept the RAW logger because that is
+   what melcloud passed at extraction time: the asymmetry was a latent
+   bug — `Auto-sync failed:` reached a host running both dialects with
+   no `[Classic]`/`[Home]` prefix — but those strings land verbatim in
+   user diagnostic reports, and an incidental cleanup inside a
+   neutrality-critical move would have made the before/after proof
+   false, so the fix was recorded for its own PR "after both adoptions
+   land". Both landed 2026-09-04; the deferral expired and the fix
+   followed in 1.2.0. Consumer effect, for the release notes:
+   melcloud's SyncManager lines gain their label prefix on its next
+   adoption; heatzy passes no label, so its output does not change.
+   Both halves are pinned in `session-api.test.ts` — the labelled-seat
+   clause and the no-label byte-identity clause.
 3. **Throttle branch → melcloud's superset.**
    `AuthenticationThrottledError` plus the announced-window resolver
    (the server's own countdown wins, floored by nothing and capped by
@@ -455,6 +478,22 @@ a host-prebuilt transport carries the vocabulary automatically; their
 sync-params shape. A change to any public shape here is versioned by
 the CONTRACT: a signature change is a major even when both known
 consumers already comply.
+
+### Exports with no external consumer — verdict, 2026-09-05
+
+Audited after both 2026-09-04 adoptions: the policy toolkit
+(`AuthRetryPolicy`, `CompositePolicy`, `RateLimitPolicy`,
+`TransientRetryPolicy`, the retry-backoff surface — `withRetryBackoff`,
+`DEFAULT_TRANSIENT_RETRY_OPTIONS`, `RetryBackoffOptions` —
+and `DisposableTimeout`) and the base redaction pair
+(`BASE_SENSITIVE_KEYS`, `baseRedaction`) currently have NO external
+consumer — `SessionAPI` constructs every one of them internally, and
+both SDKs reach them only through it. They STAY exported: an
+unconstructed export costs a consumer nothing, a host composing its own
+client outside `SessionAPI` may want exactly these pieces, and trimming
+them would be a major for nothing. `api-surface.test.ts` pins the set;
+this verdict exists so a future audit reads a decision here instead of
+re-deriving one.
 
 ## Governance files
 
