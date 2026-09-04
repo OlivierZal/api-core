@@ -11,7 +11,9 @@ import { APIError } from './base.ts'
  * parameter.
  *
  * `name` is typed as `string` rather than as its own literal so a
- * subclass — {@link AuthenticationThrottledError} — can narrow it.
+ * subclass — `AuthenticationThrottledError` — can narrow it. A code-font
+ * name, not a `link`: a consumer that re-exports this class without the
+ * subclass (heatzy does) cannot resolve the link in its own `.d.ts`.
  * @category Errors
  */
 export class AuthenticationError extends APIError {
