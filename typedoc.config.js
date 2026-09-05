@@ -22,8 +22,9 @@ const config = typedocBase({
   hostedBaseUrl: 'https://olivierzal.github.io/api-core/',
   intentionallyNotExported: [
     // Internal infrastructure leaked through the public `setting`
-    // decorator signature (tagged `@internal` in source); heatzy-api
-    // carries the same entry for its own copy.
+    // decorator signature (tagged `@internal` in source); the core's
+    // alone since the SessionAPI extraction — heatzy-api consumes the
+    // decorator from here and no longer carries a copy or this entry.
     'HasSettingManager',
   ],
   name: 'API Core',
