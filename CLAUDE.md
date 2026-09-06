@@ -479,38 +479,42 @@ sync-params shape. A change to any public shape here is versioned by
 the CONTRACT: a signature change is a major even when both known
 consumers already comply.
 
-### Exports with no external consumer — verdict, 2026-09-05, re-counted 2026-09-06
+### Exports with no external consumer — verdict, 2026-09-05, re-counted 2026-09-07
 
-Audited after both 2026-09-04 adoptions, and re-counted on 2026-09-06
+Audited after both 2026-09-04 adoptions, and re-counted on 2026-09-07
 against every `{…} from '@olivierzal/api-core…'` import block in the
-family — the two SDKs are the only repos that pin the package (both at
-1.2.0); the apps reach it through them, and the `fireAndForget` they
-import comes from `@olivierzal/homey-kit`, not from here. The root
-barrel exports 67 names, 42 values and 25 types; 21 of them — fourteen
-values, seven types — have NO external importer, through the root or
-through a subpath:
+family AS THE SDKs' AUDIT SWEEPS LEAVE THEM (heatzy-api #1240 makes
+`HeatzyAPIConfig` extend `SessionAPIConfig`; melcloud-api #1765 drops
+the last importers of `APICallLogData` and `LoggableRequestConfig`) —
+the two SDKs are the only repos that pin the package (both at 1.2.0);
+the apps reach it through them, and the `fireAndForget` they import
+comes from `@olivierzal/homey-kit`, not from here. The root barrel
+exports 67 names, 42 values and 25 types; 22 of them — fifteen values,
+seven types — have NO external importer, through the root or through
+a subpath:
 
-- The fourteen values: the policy toolkit (`AuthRetryPolicy`,
+- The fifteen values: the policy toolkit (`AuthRetryPolicy`,
   `CompositePolicy`, `RateLimitPolicy`, `TransientRetryPolicy`, the
   retry-backoff surface `withRetryBackoff` /
   `DEFAULT_TRANSIENT_RETRY_OPTIONS`, and `DisposableTimeout`), the base
   redaction pair (`BASE_SENSITIVE_KEYS`, `baseRedaction`),
-  `SyncManager`, `LifecycleEmitter`, `fireAndForget` (root and
-  `/fire-and-forget` subpath alike), `formatDurationHuman` and
-  `isTransientServerError`. `SessionAPI` — or a seat it builds —
+  `APICallLogData`, `SyncManager`, `LifecycleEmitter`, `fireAndForget`
+  (root and `/fire-and-forget` subpath alike), `formatDurationHuman`
+  and `isTransientServerError`. `SessionAPI` — or a seat it builds —
   constructs or calls every one of them, and both SDKs reach them only
   through it. `LifecycleEmitter` could not be trimmed even if wanted: it
   types the protected `events` member, so the emitted `.d.ts` names it.
   (`RateLimitGate` types the protected `rateLimitGate` the same way but
   is NOT on this list — melcloud-api's `rate-limit-gate.ts` imports it.)
-- The seven types: `SessionAPIConfig`, `SessionAPIOptions`,
-  `APICallLogDataWithErrorMessage`, `RateLimitDurationLike`,
-  `ResiliencePolicy`, `RetryBackoffOptions`, `RetryTelemetry`. Each
-  names a parameter or return of an exported signature (the `SessionAPI`
-  constructor, `createAPICallErrorData`, the `RateLimitGate` /
-  `TransientRetryPolicy` / `CompositePolicy` constructors,
+- The seven types: `SessionAPIOptions`, `APICallLogDataWithErrorMessage`,
+  `LoggableRequestConfig`, `RateLimitDurationLike`, `ResiliencePolicy`,
+  `RetryBackoffOptions`, `RetryTelemetry`. Each names a parameter or
+  return of an exported signature (the `SessionAPI` constructor,
+  `createAPICallErrorData`, the request-log shells, the `RateLimitGate`
+  / `TransientRetryPolicy` / `CompositePolicy` constructors,
   `withRetryBackoff`), so a consumer spelling those signatures out needs
-  the name.
+  the name. `SessionAPIConfig` left the list on 2026-09-07: heatzy-api's
+  public config type extends it.
 
 They STAY exported: an unconstructed export costs a consumer nothing, a
 host composing its own client outside `SessionAPI` may want exactly
@@ -527,8 +531,11 @@ re-deriving one; when the barrel changes, re-count it — never trim it.
 `tests/helpers.ts` (`cast`, `mockTemporalNowInstant`, `defined`,
 `createLogger`, `mockFetchResponse`, `createHttpError` /
 `createServerError` / `createUnauthorizedError`) is a hand-maintained
-twin of the same helpers in melcloud-api's and heatzy-api's
-`tests/helpers.ts`, with no shared owner: this package exports no
+twin of melcloud-api's `tests/helpers.ts` (which exports all eight) and
+of heatzy-api's (which carries `cast`, `mockTemporalNowInstant`,
+`defined`, `createLogger`, `mockFetchResponse` and `createServerError`
+— its `createHttpError` is module-private and it has no
+`createUnauthorizedError`), with no shared owner: this package exports no
 `./testing` subpath, and neither SDK depends on homey-kit, whose
 `src/testing` owns the apps' helpers. The twin discipline this package
 exists to end (top of this file) was about SHIPPED mechanism, where a
@@ -542,12 +549,12 @@ release of its own, or not at all. Until that verdict the twins are
 deliberate: a fix to any of them (the `mockTemporalNowInstant`
 native-Temporal fake-timer trap is the kind that matters) is mirrored
 by hand in all three, and this paragraph is what the next audit reads
-instead of re-deriving the gap. Known drift, harmless today: heatzy's
-`mockFetchResponse` nulls the body on the full Fetch null-body status
-set, where this copy and melcloud's null it on 204 alone — harmless
-while no suite produces another null-body status (this suite's calls
-pass 200, 204, 400, 401, 403, 429, 500 and 502; heatzy's pass 400 and
-500).
+instead of re-deriving the gap. Known drift, harmless today: this copy
+and melcloud's null the body on 204, the one null-body status their
+suites stage (this suite's calls pass 200, 204, 400, 401, 403, 429, 500
+and 502), where heatzy's `mockFetchResponse` (since #1240) always
+serialises the body — its suite stages 400 and 500 only, and the core's
+own suite models the null-body statuses.
 
 ## Governance files
 

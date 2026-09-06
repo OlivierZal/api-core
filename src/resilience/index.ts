@@ -1,17 +1,17 @@
 /**
- * Resilience primitives shared by the consuming API clients.
+ * Resilience primitives the session lifecycle composes.
  *
- * Composition contract (how these pieces interact inside a consumer's
- * request path):
+ * Composition contract (how `SessionAPI` assembles these pieces around
+ * every request — the SDKs subclass it and never compose them):
  *
  * 1. **`ensureSession()`** runs first. If the session is missing or
- *    expired (with pre-emptive threshold), the consumer
- *    re-authenticates before the request leaves the method. Not part
- *    of the resilience chain — it's the lifecycle entry that
- *    guarantees we have valid credentials to even try.
- * 2. **{@link ResiliencePolicy}** chain — assembled via
- *    {@link CompositePolicy} (or nested directly) with outer → inner
- *    order:
+ *    expired (with pre-emptive threshold), `SessionAPI` re-authenticates
+ *    before the request leaves the method. Not part of the resilience
+ *    chain — it's the lifecycle entry that guarantees we have valid
+ *    credentials to even try.
+ * 2. **{@link ResiliencePolicy}** chain — `SessionAPI`'s per-request
+ *    pipeline nests them (a host composing its own client may reach for
+ *    {@link CompositePolicy}) with outer → inner order:
  *    - {@link RateLimitPolicy} (outermost): short-circuits with
  *      {@link RateLimitError} if the gate is paused; records a 429
  *      response into the gate on the way out.

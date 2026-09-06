@@ -1,9 +1,10 @@
 # @olivierzal/api-core
 
 Shared API-client core for the OlivierZal SDKs (`melcloud-api`,
-`heatzy-api`): the redaction-seated HTTP client, the observability
-shells, and the resilience primitives — the MECHANISM the SDKs used to
-carry as byte-identical twins. The protocol vocabularies (sensitive-key
+`heatzy-api`): the session lifecycle and request pipeline
+(`SessionAPI`, which both SDKs subclass), the redaction-seated HTTP
+client, the observability shells, and the resilience primitives — the
+MECHANISM the SDKs used to carry as byte-identical twins. The protocol vocabularies (sensitive-key
 sets, wire types, status semantics) stay in each consumer and are
 INJECTED here, never owned.
 
