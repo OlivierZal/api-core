@@ -72,8 +72,9 @@ const serializeBody = (body: unknown): string => {
 
 /**
  * Build a fetch-compatible Response mock covering the surface
- * `HttpClient.request` relies on: `.status`, `.ok`, `.text()`,
- * `.headers.get()`, and `.headers.getSetCookie()`.
+ * `HttpClient.request` relies on: `.status`, `.ok`, `.text()` (through
+ * `parseBody`), and — through `readHeaders` — `.headers.entries()` and
+ * `.headers.getSetCookie()`. Nothing in `src` reads `.headers.get()`.
  * @param body - Response body; objects are JSON-serialised, strings pass
  *   through.
  * @param headers - Response headers; `set-cookie` may be an array.

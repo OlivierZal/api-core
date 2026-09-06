@@ -479,21 +479,75 @@ sync-params shape. A change to any public shape here is versioned by
 the CONTRACT: a signature change is a major even when both known
 consumers already comply.
 
-### Exports with no external consumer — verdict, 2026-09-05
+### Exports with no external consumer — verdict, 2026-09-05, re-counted 2026-09-06
 
-Audited after both 2026-09-04 adoptions: the policy toolkit
-(`AuthRetryPolicy`, `CompositePolicy`, `RateLimitPolicy`,
-`TransientRetryPolicy`, the retry-backoff surface — `withRetryBackoff`,
-`DEFAULT_TRANSIENT_RETRY_OPTIONS`, `RetryBackoffOptions` —
-and `DisposableTimeout`) and the base redaction pair
-(`BASE_SENSITIVE_KEYS`, `baseRedaction`) currently have NO external
-consumer — `SessionAPI` constructs every one of them internally, and
-both SDKs reach them only through it. They STAY exported: an
-unconstructed export costs a consumer nothing, a host composing its own
-client outside `SessionAPI` may want exactly these pieces, and trimming
-them would be a major for nothing. `api-surface.test.ts` pins the set;
-this verdict exists so a future audit reads a decision here instead of
-re-deriving one.
+Audited after both 2026-09-04 adoptions, and re-counted on 2026-09-06
+against every `{…} from '@olivierzal/api-core…'` import block in the
+family — the two SDKs are the only repos that pin the package (both at
+1.2.0); the apps reach it through them, and the `fireAndForget` they
+import comes from `@olivierzal/homey-kit`, not from here. The root
+barrel exports 67 names, 42 values and 25 types; 21 of them — fourteen
+values, seven types — have NO external importer, through the root or
+through a subpath:
+
+- The fourteen values: the policy toolkit (`AuthRetryPolicy`,
+  `CompositePolicy`, `RateLimitPolicy`, `TransientRetryPolicy`, the
+  retry-backoff surface `withRetryBackoff` /
+  `DEFAULT_TRANSIENT_RETRY_OPTIONS`, and `DisposableTimeout`), the base
+  redaction pair (`BASE_SENSITIVE_KEYS`, `baseRedaction`),
+  `SyncManager`, `LifecycleEmitter`, `fireAndForget` (root and
+  `/fire-and-forget` subpath alike), `formatDurationHuman` and
+  `isTransientServerError`. `SessionAPI` — or a seat it builds —
+  constructs or calls every one of them, and both SDKs reach them only
+  through it. `LifecycleEmitter` could not be trimmed even if wanted: it
+  types the protected `events` member, so the emitted `.d.ts` names it.
+  (`RateLimitGate` types the protected `rateLimitGate` the same way but
+  is NOT on this list — melcloud-api's `rate-limit-gate.ts` imports it.)
+- The seven types: `SessionAPIConfig`, `SessionAPIOptions`,
+  `APICallLogDataWithErrorMessage`, `RateLimitDurationLike`,
+  `ResiliencePolicy`, `RetryBackoffOptions`, `RetryTelemetry`. Each
+  names a parameter or return of an exported signature (the `SessionAPI`
+  constructor, `createAPICallErrorData`, the `RateLimitGate` /
+  `TransientRetryPolicy` / `CompositePolicy` constructors,
+  `withRetryBackoff`), so a consumer spelling those signatures out needs
+  the name.
+
+They STAY exported: an unconstructed export costs a consumer nothing, a
+host composing its own client outside `SessionAPI` may want exactly
+these pieces, and trimming them would be a major for nothing.
+`api-surface.test.ts` pins the WHOLE 42-name value surface, not this
+subset — an accidental drop of any value export fails there — and no
+test pins the type exports: the eighteen imported ones are held by the
+consumers' adoption typechecks, the seven above by this ledger alone.
+This verdict exists so a future audit reads a decision here instead of
+re-deriving one; when the barrel changes, re-count it — never trim it.
+
+## Test helpers stay local — interim verdict, 2026-09-06
+
+`tests/helpers.ts` (`cast`, `mockTemporalNowInstant`, `defined`,
+`createLogger`, `mockFetchResponse`, `createHttpError` /
+`createServerError` / `createUnauthorizedError`) is a hand-maintained
+twin of the same helpers in melcloud-api's and heatzy-api's
+`tests/helpers.ts`, with no shared owner: this package exports no
+`./testing` subpath, and neither SDK depends on homey-kit, whose
+`src/testing` owns the apps' helpers. The twin discipline this package
+exists to end (top of this file) was about SHIPPED mechanism, where a
+missed mirror leaked credentials; these helpers ship nowhere, which is
+why the cost/benefit differs. The 2026-09-06 audit weighed a `./testing`
+subpath here (the homey-kit precedent) and it is DEFERRED, not refused:
+it would ship vitest-importing code through a production dependency
+onto the apps' device trees, and couple every helper tweak to a release
+plus two pin-bump PRs — a cost the owner accepts explicitly, in a
+release of its own, or not at all. Until that verdict the twins are
+deliberate: a fix to any of them (the `mockTemporalNowInstant`
+native-Temporal fake-timer trap is the kind that matters) is mirrored
+by hand in all three, and this paragraph is what the next audit reads
+instead of re-deriving the gap. Known drift, harmless today: heatzy's
+`mockFetchResponse` nulls the body on the full Fetch null-body status
+set, where this copy and melcloud's null it on 204 alone — harmless
+while no suite produces another null-body status (this suite's calls
+pass 200, 204, 400, 401, 403, 429, 500 and 502; heatzy's pass 400 and
+500).
 
 ## Governance files
 
@@ -514,6 +568,19 @@ Sonar zero on BOTH windows verified BEFORE merge, publish via GitHub
 Release → `publish.yml` (GitHub Packages, provenance-attested),
 registry proven by `npm view` before any "published" claim. Version by
 the CONTRACT, not by observed consumers.
+
+Nine of the eleven workflows are stubs calling the family reusables in
+`OlivierZal/configs`, pinned `@<sha> # vX.Y.Z`; `publish.yml` and
+`docs.yml` stay local (no reusable exists — configs ships `reusable-ci`
+and `reusable-claude-dependabot-fix` only), so the
+`setup-node-and-install` composite action stays too, and both installs
+pass the job `GITHUB_TOKEN` as `npm-token` (the configs dependency lives
+on GitHub Packages, where even reads need auth). The two files are
+byte-identical with melcloud-api's and heatzy-api's — deliberate,
+recorded here as both SDKs record it, and untouched since the
+2026-08-27 seed; a `reusable-docs` / `reusable-publish` in configs is
+the 2026-09-06 audit's proposal for turning them into stubs, and until
+configs ships one they are edited in all three repos or in none.
 
 ## First-run ledger — measured 2026-08-27, closed 2026-08-29
 
