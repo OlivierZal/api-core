@@ -45,7 +45,17 @@ Run the FULL suite before any push; check real exit codes:
   path holds.
 - `npm test` / `npm run test:coverage` — vitest; thresholds are 100 %
   on all four axes, over the whole of `src/` with no exception.
-- `npm run docs` — typedoc; the Pages site deploys on release.
+- `npm run docs` — typedoc; the Pages site deploys on release. typedoc
+  and the two plugins the configs preset names
+  (`typedoc-plugin-coverage`, `typedoc-plugin-mdn-links`) are THIS
+  repo's devDependencies, on purpose: typedoc loads the plugins by name
+  from the consumer's tree, and configs 5.0.0 declares none of the
+  three in any field the installer reads — GitHub Packages strips
+  `peerDependenciesMeta` from the packument, so an optional peer there
+  would reach every consumer, the apps included, as a mandatory one
+  (measured in configs, 2026-09-07). Dependabot moves the three pins
+  here; the majors configs proves the preset against are its README's
+  (typedoc 0.28, coverage 4, mdn-links 5).
 - `npm run lint:package` — build + `publint --strict`.
 
 ## What enters this package — the mechanism bar
@@ -544,6 +554,17 @@ one typed host.
   this package ships inside the SDKs, which install as production
   dependencies of the Homey apps, whose measured device floor is Node
   22.20. Re-derive on change; never copy a sibling's number blindly.
+- **`.nvmrc` is the INSTALL floor — 22.22.2 — not the engines floor,
+  and it is derived in configs, not here.** It names the lowest Node
+  the toolchain configs pulls into every consumer installs on
+  (`eslint-plugin-package-json` requires `^22.22.2 || >=24.15.0`;
+  configs' own `engines` states the same value, and its CLAUDE.md
+  carries the derivation). `engines` above keeps the device floor,
+  because that is what the CODE needs where it runs; a fresh clone on
+  22.20 would run the package but cannot `npm ci` its dev tree, which
+  is the one thing `.nvmrc` must tell it. One rule for the four
+  libraries since the configs 5.0.0 adoptions (2026-09-07); it moves
+  when configs re-derives it, never by hand here.
 - **`u`-flag regexes over all of `src`** — the consuming SDKs are
   bundled INTO their apps' phone webviews (melcloud-api's `/constants`
   values are inlined into shipped widget bundles), and the worst engine
@@ -697,18 +718,29 @@ Release → `publish.yml` (GitHub Packages, provenance-attested),
 registry proven by `npm view` before any "published" claim. Version by
 the CONTRACT, not by observed consumers.
 
-Nine of the eleven workflows are stubs calling the family reusables in
-`OlivierZal/configs`, pinned `@<sha> # vX.Y.Z`; `publish.yml` and
-`docs.yml` stay local (no reusable exists — configs ships `reusable-ci`
-and `reusable-claude-dependabot-fix` only), so the
-`setup-node-and-install` composite action stays too, and both installs
-pass the job `GITHUB_TOKEN` as `npm-token` (the configs dependency lives
-on GitHub Packages, where even reads need auth). The two files are
-byte-identical with melcloud-api's and heatzy-api's — deliberate,
-recorded here as both SDKs record it, and untouched since the
-2026-08-27 seed; a `reusable-docs` / `reusable-publish` in configs is
-the 2026-09-06 audit's proposal for turning them into stubs, and until
-configs ships one they are edited in all three repos or in none.
+All eleven workflows are stubs calling the family reusables in
+`OlivierZal/configs`, pinned `@<sha> # vX.Y.Z` — one version, both
+channels: the npm pin and every `uses:` ref move in the same commit,
+and `check-pins` fails a mismatch. `publish.yml` and `docs.yml` joined
+the stubs with the configs 5.0.0 adoption (`reusable-publish` /
+`reusable-docs`, derived from the copies the four libraries had carried
+identically — this repo's since the 2026-08-27 seed — minus a dead
+`IS_PRERELEASE` env entry): the caller keeps the `release` trigger and
+the grants (publish: attestations / id-token / packages write,
+contents read; docs: contents and packages read, id-token and pages
+write), and the `npm` and `github-pages` environments travel with the
+called jobs. The `setup-node-and-install` composite action stays LOCAL
+on purpose — the called jobs run the CALLER's copy — and every install
+passes the job `GITHUB_TOKEN` as `npm-token` (the configs dependency
+lives on GitHub Packages, where even reads need auth). `docs.yml` also
+takes a `workflow_dispatch` with a boolean `dry-run`: the build half
+runs, the deploy is skipped — the one rehearsal a release-only path
+can get, so dispatch it once after every configs adoption and before
+the next release (the deploy half and the `npm` environment stay
+unproven until the first release through the reusables — configs
+states that residual risk rather than hiding it). The
+`use-trusted-publishing` zizmor ignore left with the local
+`npm publish` step: a stub carries nothing for that audit to flag.
 
 ## First-run ledger — measured 2026-08-27, closed 2026-08-29
 
