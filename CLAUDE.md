@@ -324,18 +324,35 @@ rejected the credentials") — and the status set was ALREADY a
 `SessionAPIOptions.authFailureStatuses` parameter, so heatzy spelled it
 twice. The helper narrows an `HttpError` whose status is in that
 vocabulary into `AuthenticationError` with the original as `cause` and
-answers `null` otherwise; a subclass's `doAuthenticate` throws
-`this.toAuthFailure(error, '<Vendor> rejected the credentials') ??
-error`. The vocabulary stays spelled once: `AuthRetryPolicy` owns it
-and answers `isAuthFailure(error)` publicly, and the helper consults
-the policy rather than a second copy — the constructor's statement
-budget is spent, and a second array would be the twin problem inside
-one class. Pinned in `session-api.test.ts` ("toAuthFailure": the
-default vocabulary, the injected one, the non-`HttpError` and
-off-vocabulary `null`s, and — thrown from `doAuthenticate` — that the
-narrowed error is what arms the login backoff while an off-vocabulary
-rejection arms nothing) and in `resilience-policies.test.ts` (the
-policy's two ownership tables).
+answers `null` otherwise. **A subclass's `doAuthenticate` spells the
+`null` branch as a BARE rethrow, in two statements** — `const authError
+= this.toAuthFailure(error, '<Vendor> rejected the credentials')`, `if
+(authError !== null) throw authError`, then `throw error` — never as
+the one-liner `throw this.toAuthFailure(…) ?? error`. The one-liner
+was this paragraph's first prescription, and it does not lint in a
+consumer: under the family `library` preset,
+`@typescript-eslint/only-throw-error` (unknown disallowed) admits a
+catch-clause variable thrown bare as a rethrow, but the `??` expression
+whose right operand is that variable is typed `unknown` and refused
+("Expected an error object to be thrown") — reported by melcloud-api's
+dry adoption at its `src/api/home.ts:592` on 2026-09-07 and reproduced
+here the same day with a probe under this repo's own overlay (the
+one-liner: one error; the two-statement form: clean). No disable
+answers it — the family forbids new ones — and no helper shape does
+either: a `never`-returning throwing variant would have to throw its
+`unknown` parameter inside this package, which the same rule refuses
+here. The README's session snippet and `session-api.test.ts`'s fixture
+spell the two-statement form, so the pinned clauses exercise the shape
+both SDKs carry. The vocabulary stays spelled once: `AuthRetryPolicy`
+owns it and answers `isAuthFailure(error)` publicly, and the helper
+consults the policy rather than a second copy — the constructor's
+statement budget is spent, and a second array would be the twin
+problem inside one class. Pinned in `session-api.test.ts`
+("toAuthFailure": the default vocabulary, the injected one, the
+non-`HttpError` and off-vocabulary `null`s, and — thrown from
+`doAuthenticate` — that the narrowed error is what arms the login
+backoff while an off-vocabulary rejection arms nothing) and in
+`resilience-policies.test.ts` (the policy's two ownership tables).
 
 **The replicated `unicorn/prefer-await` disable did not cross.** Both
 twins guard `ensureSession`'s single-flight memoization with an inline

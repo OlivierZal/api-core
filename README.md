@@ -126,10 +126,17 @@ class MyAPI extends SessionAPI<MySyncParams> {
     } catch (error) {
       // The same statuses, spelled once: a rejection on them becomes
       // the shared AuthenticationError (cause preserved); anything
-      // else is rethrown verbatim.
-      throw (
-        this.toAuthFailure(error, 'Vendor rejected the credentials') ?? error
+      // else is rethrown verbatim — as a BARE `throw error`, the
+      // catch-clause rethrow `only-throw-error` admits (a `?? error`
+      // one-liner is typed `unknown` there and refused).
+      const authError = this.toAuthFailure(
+        error,
+        'Vendor rejected the credentials',
       )
+      if (authError !== null) {
+        throw authError
+      }
+      throw error
     }
   }
 }

@@ -861,7 +861,11 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * auth-retry rung owns, consulted here rather than copied) becomes an
    * `AuthenticationError` carrying `message`, the original error
    * preserved as `cause`; anything else answers `null` so the caller
-   * rethrows its original error. Subclass {@link doAuthenticate} implementations call it so
+   * rethrows its original error — as a bare `throw error` in a second
+   * statement, never `throw this.toAuthFailure(…) ?? error`: the
+   * family's `only-throw-error` rule admits a catch-clause variable
+   * rethrown bare and refuses the `??` expression, which is typed
+   * `unknown`. Subclass {@link doAuthenticate} implementations call it so
    * {@link authenticate} callers get a stable error shape whatever the
    * sign-in flow (a cookie, a bearer token…) — and so the login-backoff
    * gate, which judges by `instanceof`, sees the refusal it guards

@@ -309,10 +309,16 @@ class Harness extends SessionAPI<SyncParams> {
     await Promise.resolve()
     this.onDoAuthenticate?.()
     if (this.authError !== undefined) {
-      throw this.shouldNarrowAuthFailures
-        ? (this.toAuthFailure(this.authError, REJECTED_MESSAGE) ??
-            this.authError)
-        : this.authError
+      // The prescribed consumer shape: the narrowed error where the
+      // wire means an auth failure, the original rethrown BARE
+      // otherwise — never `?? error` (CLAUDE.md, the seam paragraph).
+      const authError = this.shouldNarrowAuthFailures
+        ? this.toAuthFailure(this.authError, REJECTED_MESSAGE)
+        : null
+      if (authError !== null) {
+        throw authError
+      }
+      throw this.authError
     }
     this.token = `token:${credentials.username}`
     this.expiry = EXPIRY
