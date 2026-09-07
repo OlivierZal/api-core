@@ -5,9 +5,12 @@ workflow expected before opening a pull request.
 
 ## Prerequisites
 
-- Node.js matching `engines.node` in [`package.json`](package.json) —
-  currently `>=22.20.0`, derived from where this code runs (see
-  `CLAUDE.md` → Runtime floors)
+- Node.js from [`.nvmrc`](.nvmrc) — currently `22.22.2`, the install
+  floor of the toolchain (`nvm use` / `fnm use` pick it up).
+  `engines.node` in [`package.json`](package.json) is a different, lower
+  number (`>=22.20.0`): what the code needs where it runs, derived in
+  `CLAUDE.md` → Runtime floors — a clone on 22.20 runs the package but
+  cannot install its dev tree
 - npm 10+
 - A GitHub personal access token with the `read:packages` scope, exported
   as `NODE_AUTH_TOKEN` — [`.npmrc`](.npmrc) reads that variable to fetch
