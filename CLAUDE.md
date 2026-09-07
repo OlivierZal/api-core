@@ -718,6 +718,15 @@ Release → `publish.yml` (GitHub Packages, provenance-attested),
 registry proven by `npm view` before any "published" claim. Version by
 the CONTRACT, not by observed consumers.
 
+Auto-merge is never armed on an authored PR (verdict 2026-09-07:
+api-core#12 had it armed and merged 13 s before Copilot's review landed,
+leaving two threads on a merged PR, one of them real). A PR is merged by
+hand, on its FINAL head, once three things hold at once: every check is
+SUCCESS or SKIPPED, the Sonar PR window is at zero open issues with the
+gate OK, and every review thread is settled. The Dependabot lane
+(`.github/workflows/dependabot.yml` arming `gh pr merge --auto` once CI
+passes) is the one deliberate exception and stays as documented.
+
 All eleven workflows are stubs calling the family reusables in
 `OlivierZal/configs`, pinned `@<sha> # vX.Y.Z` — one version, both
 channels: the npm pin and every `uses:` ref move in the same commit,
