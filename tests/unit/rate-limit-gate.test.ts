@@ -5,7 +5,7 @@ import {
   RateLimitGate,
 } from '../../src/resilience/rate-limit-gate.ts'
 import { Temporal } from '../../src/temporal.ts'
-import { mockTemporalNowInstant } from '../helpers.ts'
+import { mockTemporalNowInstant } from '../../src/testing/index.ts'
 
 describe(RateLimitGate, () => {
   beforeEach(() => {

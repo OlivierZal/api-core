@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { isSessionExpired } from '../../src/resilience/session-expiry.ts'
 import { Temporal } from '../../src/temporal.ts'
-import { mockTemporalNowInstant } from '../helpers.ts'
+import { mockTemporalNowInstant } from '../../src/testing/index.ts'
 
 describe(isSessionExpired, () => {
   beforeEach(() => {

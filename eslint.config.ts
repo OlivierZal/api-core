@@ -36,6 +36,21 @@ const config: Config[] = defineConfig([
     ],
     wireNamingFiles: ['src/http/status.ts'],
   }),
+  {
+    // The `./testing` subpath reaches outside the package on purpose,
+    // and the package declares NOTHING to satisfy it: naming `vitest`
+    // as a peer would install it on the device, since the SDKs depend
+    // on this package in production. It comes from the consumer, which
+    // has it as a devDependency — the helpers run inside the consumer's
+    // vitest process (the homey-kit precedent).
+    files: ['src/testing/**/*.ts'],
+    rules: {
+      'import-x/no-extraneous-dependencies': [
+        'error',
+        { devDependencies: true, peerDependencies: false },
+      ],
+    },
+  },
   webviewFloorBlock(WEBVIEW_FLOOR_FILES),
   {
     // Shipped regexes stay on the `u` flag: the consuming SDKs are

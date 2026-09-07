@@ -8,7 +8,7 @@ import {
   createAPICallErrorData,
   createRedaction,
 } from '../../src/observability/index.ts'
-import { defined } from '../helpers.ts'
+import { defined } from '../../src/testing/index.ts'
 
 // `JSON.parse` returns `any`; the suite funnels every log line through
 // zod — the same boundary discipline the consuming SDKs apply to wire

@@ -23,13 +23,15 @@ import {
 import { HttpClient } from '../../src/http/index.ts'
 import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
-import { MS_PER_MINUTE } from '../../src/time-units.ts'
 import {
   cast,
   createLogger,
+  createServerError,
+  createUnauthorizedError,
   mockFetchResponse,
   mockTemporalNowInstant,
-} from '../helpers.ts'
+} from '../../src/testing/index.ts'
+import { MS_PER_MINUTE } from '../../src/time-units.ts'
 
 type FetchInit = NonNullable<Parameters<typeof fetch>[1]>
 
@@ -73,6 +75,8 @@ const HTTP_BAD_GATEWAY = 502
 // it.
 const VENDOR_TOKEN_KEY = 'x-vendor-token'
 const VENDOR_SECRET = 'vendor-secret-value'
+
+const REJECTED_MESSAGE = 'Vendor rejected the credentials'
 
 const CONCURRENT_CALLERS = 4
 const RATE_LIMIT_HOURS = 2
@@ -151,6 +155,11 @@ class Harness extends SessionAPI<SyncParams> {
 
   // Ordered trace of the hooks the template actually called.
   public readonly seen: string[] = []
+
+  // The SDKs' `doAuthenticate` wiring: the rejection is narrowed through
+  // the protected `toAuthFailure` where the wire means an auth failure,
+  // and rethrown verbatim otherwise.
+  public shouldNarrowAuthFailures = false
 
   // melcloud Classic's wiring: its reactive recovery IS
   // `resumeSession`, taken with the rejected credential still standing.
@@ -258,6 +267,13 @@ class Harness extends SessionAPI<SyncParams> {
     return this.token !== ''
   }
 
+  public normalizeFailure(
+    error: unknown,
+    message: string,
+  ): AuthenticationError | null {
+    return this.toAuthFailure(error, message)
+  }
+
   public readExpiry(): string {
     return this.expiry
   }
@@ -293,7 +309,10 @@ class Harness extends SessionAPI<SyncParams> {
     await Promise.resolve()
     this.onDoAuthenticate?.()
     if (this.authError !== undefined) {
-      throw this.authError
+      throw this.shouldNarrowAuthFailures
+        ? (this.toAuthFailure(this.authError, REJECTED_MESSAGE) ??
+            this.authError)
+        : this.authError
     }
     this.token = `token:${credentials.username}`
     this.expiry = EXPIRY
@@ -1216,6 +1235,109 @@ describe(SessionAPI, () => {
       await harness.notifySync({ ids: ['a'] })
 
       expect(onSyncComplete).toHaveBeenCalledWith({ ids: ['a'] })
+    })
+  })
+
+  // The normalization both SDKs carried as module-level twins
+  // (`normalizeUnauthorized`, `toAuthFailure`), differing only by data:
+  // the status set — spelled ONCE now, as `authFailureStatuses` — and
+  // the message.
+  describe('toAuthFailure', () => {
+    it('narrows an HttpError on the default vocabulary into an AuthenticationError carrying the cause', () => {
+      using harness = new Harness()
+      const rejection = createUnauthorizedError('/login')
+
+      const failure = harness.normalizeFailure(rejection, REJECTED_MESSAGE)
+
+      expect(failure).toBeInstanceOf(AuthenticationError)
+      expect(failure?.message).toBe(REJECTED_MESSAGE)
+      expect(failure?.cause).toBe(rejection)
+    })
+
+    it('answers null for a status outside the vocabulary', () => {
+      using harness = new Harness()
+
+      expect(
+        harness.normalizeFailure(
+          createServerError(HTTP_SERVER_ERROR, '/login'),
+          REJECTED_MESSAGE,
+        ),
+      ).toBeNull()
+      expect(
+        harness.normalizeFailure(
+          createServerError(HTTP_BAD_REQUEST, '/login'),
+          REJECTED_MESSAGE,
+        ),
+      ).toBeNull()
+    })
+
+    it('answers null for anything that is not an HttpError', () => {
+      using harness = new Harness()
+
+      expect(
+        harness.normalizeFailure(
+          new TypeError('fetch failed'),
+          REJECTED_MESSAGE,
+        ),
+      ).toBeNull()
+      expect(harness.normalizeFailure('boom', REJECTED_MESSAGE)).toBeNull()
+    })
+
+    it('reads the vocabulary the subclass injected', () => {
+      using harness = new Harness(
+        {},
+        { authFailureStatuses: [HTTP_UNAUTHORIZED, HTTP_BAD_REQUEST] },
+      )
+
+      expect(
+        harness.normalizeFailure(
+          createServerError(HTTP_BAD_REQUEST, '/login'),
+          REJECTED_MESSAGE,
+        ),
+      ).toBeInstanceOf(AuthenticationError)
+    })
+
+    // The seam's point: thrown from `doAuthenticate`, the narrowed
+    // error is what the login-backoff gate judges by `instanceof` — a
+    // rejection outside the wire's vocabulary arms nothing.
+    describe('thrown from doAuthenticate', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+        mockTemporalNowInstant()
+      })
+
+      afterEach(() => {
+        vi.mocked(Temporal.Now.instant).mockRestore()
+        vi.useRealTimers()
+      })
+
+      it('arms the login backoff with the narrowed error', async () => {
+        const store = createStore()
+        using harness = new Harness({ settingManager: store.manager })
+        harness.shouldNarrowAuthFailures = true
+        harness.authError = createUnauthorizedError('/login')
+
+        await expect(harness.authenticate(CREDENTIALS)).rejects.toBeInstanceOf(
+          AuthenticationError,
+        )
+
+        expect(store.values.get('loginBackoffUntil')).toBe(
+          String(Date.now() + BACKOFF_FAILURE_MS),
+        )
+      })
+
+      it('leaves the backoff alone when the rejection is off the vocabulary', async () => {
+        const store = createStore()
+        using harness = new Harness({ settingManager: store.manager })
+        harness.shouldNarrowAuthFailures = true
+        harness.authError = createServerError(HTTP_SERVER_ERROR, '/login')
+
+        await expect(harness.authenticate(CREDENTIALS)).rejects.toThrow(
+          'Status 500',
+        )
+
+        expect(store.values.has('loginBackoffUntil')).toBe(false)
+      })
     })
   })
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SyncManager } from '../../src/api/sync-manager.ts'
+import { createLogger } from '../../src/testing/index.ts'
 import { MS_PER_MINUTE } from '../../src/time-units.ts'
-import { createLogger } from '../helpers.ts'
 
 describe(SyncManager, () => {
   beforeEach(() => {

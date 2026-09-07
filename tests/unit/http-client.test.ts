@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { HttpClient, HttpError, isHttpError } from '../../src/http/index.ts'
 import { createRedaction } from '../../src/observability/index.ts'
-import { cast, mockFetchResponse } from '../helpers.ts'
+import { cast, mockFetchResponse } from '../../src/testing/index.ts'
 
 type FetchInit = NonNullable<Parameters<typeof fetch>[1]>
 
