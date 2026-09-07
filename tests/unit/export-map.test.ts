@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
@@ -14,6 +14,11 @@ import { describe, expect, it } from 'vitest'
 // grouped surfaces rather than leaves, and none has been needed from a
 // browser. DIRECTORY_REEXPORTS pins the known set so a new one forces that
 // decision instead of inheriting the exemption in silence.
+//
+// `./testing` is the one directory subpath the root barrel does NOT
+// re-export — it imports vitest, which a consumer's production import
+// must never drag in — so it is absent from DIRECTORY_REEXPORTS and
+// resolves to its directory's `index.ts` below.
 
 const DIRECTORY_REEXPORT = /from '\.\/(?<directory>[a-z\-]+)\/index\.ts'/gv
 
@@ -42,11 +47,17 @@ const isManifest = (
   typeof value.exports === 'object' &&
   value.exports !== null
 
+const repoPath = (relativePath: string): string =>
+  fileURLToPath(new URL(`../../${relativePath}`, import.meta.url))
+
 const readRepoFile = (relativePath: string): string =>
-  readFileSync(
-    fileURLToPath(new URL(`../../${relativePath}`, import.meta.url)),
-    'utf8',
-  )
+  readFileSync(repoPath(relativePath), 'utf8')
+
+// A flat subpath is the module of the same name; a directory subpath is
+// that directory's `index.ts`.
+const hasSource = (target: string): boolean =>
+  existsSync(repoPath(`src/${target}.ts`)) ||
+  existsSync(repoPath(`src/${target}/index.ts`))
 
 const getGroups = (
   source: string,
@@ -95,7 +106,7 @@ describe.concurrent('export map', () => {
     (subpath) => {
       const target = subpath === '.' ? 'index' : subpath.slice(2)
 
-      expect(() => readRepoFile(`src/${target}.ts`)).not.toThrow()
+      expect(hasSource(target)).toBe(true)
     },
   )
 

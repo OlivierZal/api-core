@@ -1,6 +1,6 @@
 {
   "name": "@olivierzal/api-core",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Shared API-client core for the OlivierZal SDKs: the session lifecycle and request pipeline (SessionAPI), the redaction-seated HTTP client, observability shells, resilience primitives — mechanism here, protocol vocabulary in each consumer",
   "keywords": [
     "http",
@@ -34,6 +34,10 @@
     "./temporal": {
       "types": "./dist/temporal.d.ts",
       "default": "./dist/temporal.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     },
     "./time-units": {
       "types": "./dist/time-units.d.ts",

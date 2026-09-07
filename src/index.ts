@@ -1,3 +1,12 @@
+/**
+ * The mechanism the SDK family shares: the session lifecycle and
+ * request pipeline, the redaction-seated transport, the observability
+ * shells, the resilience primitives, the error hierarchy and the two
+ * decorators — everything a consuming SDK's PRODUCTION code reaches.
+ * The vitest-backed test helpers live on their own `./testing` subpath
+ * and are never re-exported from here.
+ * @packageDocumentation
+ */
 export type {
   LifecycleEvents,
   Logger,
@@ -35,7 +44,7 @@ export type {
 } from './types/index.ts'
 
 export { SessionAPI, SyncManager } from './api/index.ts'
-export { setting } from './decorators/index.ts'
+export { setting, syncDevices } from './decorators/index.ts'
 export {
   APIError,
   AuthenticationError,
@@ -43,6 +52,7 @@ export {
   isAPIError,
   RateLimitError,
   RegistrySyncError,
+  ValidationError,
 } from './errors/index.ts'
 export { fireAndForget } from './fire-and-forget.ts'
 export {

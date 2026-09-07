@@ -1,4 +1,4 @@
-import { HttpStatus, isHttpError } from '../http/index.ts'
+import { type HttpError, HttpStatus, isHttpError } from '../http/index.ts'
 import type { ResiliencePolicy } from './policy.ts'
 import type { RetryGuard } from './retry-guard.ts'
 
@@ -43,6 +43,19 @@ export class AuthRetryPolicy implements ResiliencePolicy {
   }
 
   /**
+   * Whether a rejection is an auth failure this policy owns: an
+   * `HttpError` whose status is in the injected vocabulary. The one
+   * read of that vocabulary outside the retry itself — `SessionAPI`'s
+   * sign-in normalization consults it so the statuses are spelled once
+   * per protocol.
+   * @param error - The rejection to inspect.
+   * @returns `true` for an owned auth failure, narrowing it.
+   */
+  public isAuthFailure(error: unknown): error is HttpError {
+    return isHttpError(error) && this.#statuses.includes(error.response.status)
+  }
+
+  /**
    * Runs the attempt, replaying it once after a successful reauth.
    * @param attempt - The request attempt to decorate.
    * @returns The attempt's resolved value.
@@ -65,10 +78,6 @@ export class AuthRetryPolicy implements ResiliencePolicy {
   }
 
   #shouldRetry(error: unknown): boolean {
-    return (
-      isHttpError(error) &&
-      this.#statuses.includes(error.response.status) &&
-      this.#guard.tryConsume()
-    )
+    return this.isAuthFailure(error) && this.#guard.tryConsume()
   }
 }

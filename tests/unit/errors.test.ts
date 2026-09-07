@@ -6,6 +6,7 @@ import {
   isAPIError,
   RateLimitError,
   RegistrySyncError,
+  ValidationError,
 } from '../../src/errors/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 
@@ -80,6 +81,28 @@ describe.concurrent('apiError hierarchy', () => {
 
     expect(error.cause).toBe(cause)
   })
+
+  it('validationError carries the boundary context and the validator error as its cause', () => {
+    const cause = new Error('invalid_type at token')
+    const error = new ValidationError('login payload rejected', {
+      cause,
+      context: 'login',
+    })
+
+    expect(error).toBeInstanceOf(ValidationError)
+    expect(error).toBeInstanceOf(APIError)
+    expect(error.name).toBe('ValidationError')
+    expect(error.message).toBe('login payload rejected')
+    expect(error.context).toBe('login')
+    expect(error.cause).toBe(cause)
+  })
+
+  it('validationError needs no cause', () => {
+    const error = new ValidationError('rejected', { context: 'GET /bindings' })
+
+    expect(error.context).toBe('GET /bindings')
+    expect(error.cause).toBeUndefined()
+  })
 })
 
 describe.concurrent(isAPIError, () => {
@@ -89,6 +112,7 @@ describe.concurrent(isAPIError, () => {
       'RateLimitError',
       new RateLimitError('x', { retryAfter: null, unblockAt: null }),
     ],
+    ['ValidationError', new ValidationError('x', { context: 'login' })],
   ])('returns true for %s', (_name, error: unknown) => {
     expect(isAPIError(error)).toBe(true)
   })

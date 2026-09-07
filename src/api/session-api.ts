@@ -147,9 +147,12 @@ export interface SessionAPIOptions {
    */
   readonly transport: HttpClient
   /**
-   * Statuses the wire answers an expired or rejected credential with,
-   * forwarded to `AuthRetryPolicy`. Defaults to `[401]`; a wire that
-   * reports an invalid token as `400` passes both.
+   * Statuses the wire answers an expired or rejected credential with —
+   * the ONE spelling of that vocabulary: `AuthRetryPolicy` owns it (the
+   * reactive re-auth), and the protected `toAuthFailure` helper (the
+   * sign-in normalization) consults the policy rather than a second
+   * copy. Defaults to `[401]`; a wire that reports an invalid token as
+   * `400` passes both.
    */
   readonly authFailureStatuses?: readonly number[] | undefined
   /**
@@ -848,6 +851,38 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     } finally {
       this.#settleSyncCycle(epoch)
     }
+  }
+
+  /**
+   * Narrow a rejection the transport surfaced into the shared
+   * {@link AuthenticationError} where the wire means one: an
+   * `HttpError` whose status is in the auth-failure vocabulary this
+   * instance was built with (`authFailureStatuses` — the set the
+   * auth-retry rung owns, consulted here rather than copied) becomes an
+   * `AuthenticationError` carrying `message`, the original error
+   * preserved as `cause`; anything else answers `null` so the caller
+   * rethrows its original error — as a bare `throw error` in a second
+   * statement, never `throw this.toAuthFailure(…) ?? error`: the
+   * family's `only-throw-error` rule admits a catch-clause variable
+   * rethrown bare and refuses the `??` expression, which is typed
+   * `unknown`. Subclass {@link doAuthenticate} implementations call it so
+   * {@link authenticate} callers get a stable error shape whatever the
+   * sign-in flow (a cookie, a bearer token…) — and so the login-backoff
+   * gate, which judges by `instanceof`, sees the refusal it guards
+   * against.
+   * @param error - The rejection to inspect.
+   * @param message - The `AuthenticationError` message, the protocol's
+   * own wording (`"<Vendor> rejected the credentials"`).
+   * @returns The narrowed error, or `null` when the rejection is not an
+   * auth failure on this wire.
+   */
+  protected toAuthFailure(
+    error: unknown,
+    message: string,
+  ): AuthenticationError | null {
+    return this.#authRetryPolicy.isAuthFailure(error)
+      ? new AuthenticationError(message, { cause: error })
+      : null
   }
 
   /**

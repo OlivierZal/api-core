@@ -14,17 +14,24 @@ const config = typedocBase({
     'Configuration',
     'Errors',
     'Decorators',
+    'Testing',
     'Types',
   ],
-  // Single-barrel shape like melcloud-api: the flat subpaths of the
-  // exports map re-export symbols the root barrel already documents,
-  // so they add no reflection of their own.
+  // Two entries, not one: the flat subpaths of the exports map re-export
+  // symbols the root barrel already documents (melcloud-api's
+  // single-barrel shape), but `./testing` is a directory subpath the
+  // root barrel never re-exports — it imports vitest — so it is
+  // documented as an entry of its own (the homey-kit shape).
+  entryPoints: ['src/index.ts', 'src/testing/index.ts'],
   hostedBaseUrl: 'https://olivierzal.github.io/api-core/',
   intentionallyNotExported: [
-    // Internal infrastructure leaked through the public `setting`
-    // decorator signature (tagged `@internal` in source); the core's
-    // alone since the SessionAPI extraction — heatzy-api consumes the
-    // decorator from here and no longer carries a copy or this entry.
+    // Internal infrastructure leaked through the public decorator
+    // signatures (tagged `@internal` in source): the `setting` host
+    // contract — the core's alone since the SessionAPI extraction;
+    // heatzy-api consumes the decorator from here and no longer carries
+    // a copy or this entry — and the `syncDevices` host contract beside
+    // it.
+    'HasNotifySync',
     'HasSettingManager',
   ],
   name: 'API Core',

@@ -40,8 +40,10 @@ import {
   SessionAPI,
   SyncManager,
   setting,
+  syncDevices,
   Temporal,
   TransientRetryPolicy,
+  ValidationError,
   withRetryBackoff,
 } from '../../src/index.ts'
 
@@ -89,8 +91,10 @@ const surface: Record<string, unknown> = {
   SessionAPI,
   SyncManager,
   setting,
+  syncDevices,
   Temporal,
   TransientRetryPolicy,
+  ValidationError,
   withRetryBackoff,
 }
 

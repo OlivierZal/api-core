@@ -34,17 +34,22 @@ range.
 
 ## Subpaths
 
-| Import                                 | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@olivierzal/api-core`                 | Everything: `HttpClient`/`HttpError`/`HttpStatus` and `readHeaders`, the redaction engine (`createRedaction`, `BASE_SENSITIVE_KEYS`, `REDACTED`), the observability shells (`APICallRequestData`, `APICallResponseData`, `createAPICallErrorData`, `LifecycleEmitter`), the resilience primitives, `SessionAPI` + `SyncManager`, the errors `APIError`/`AuthenticationError`/`AuthenticationThrottledError`/`RateLimitError`/`RegistrySyncError` and the guards `isAPIError`/`isHttpError`, the `setting` accessor decorator, `LoginCredentials`, the lifecycle types — plus a re-export of the three subpath modules below |
-| `@olivierzal/api-core/fire-and-forget` | `fireAndForget` — the one sanctioned detach-and-log seam                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `@olivierzal/api-core/temporal`        | `Temporal` + `Intl` — the single `temporal-polyfill` entry point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `@olivierzal/api-core/time-units`      | `MS_PER_SECOND`, `MS_PER_MINUTE`, `MS_PER_DAY`, `SESSION_REFRESH_AHEAD_MS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Import                                 | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@olivierzal/api-core`                 | Everything: `HttpClient`/`HttpError`/`HttpStatus` and `readHeaders`, the redaction engine (`createRedaction`, `BASE_SENSITIVE_KEYS`, `REDACTED`), the observability shells (`APICallRequestData`, `APICallResponseData`, `createAPICallErrorData`, `LifecycleEmitter`), the resilience primitives, `SessionAPI` + `SyncManager`, the errors `APIError`/`AuthenticationError`/`AuthenticationThrottledError`/`RateLimitError`/`RegistrySyncError`/`ValidationError` and the guards `isAPIError`/`isHttpError`, the `setting` accessor decorator and the `syncDevices` method decorator factory, `LoginCredentials`, the lifecycle types — plus a re-export of the three flat subpath modules below (never `./testing`) |
+| `@olivierzal/api-core/fire-and-forget` | `fireAndForget` — the one sanctioned detach-and-log seam                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `@olivierzal/api-core/temporal`        | `Temporal` + `Intl` — the single `temporal-polyfill` entry point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `@olivierzal/api-core/testing`         | The vitest-backed helpers the SDK suites share — `cast`, `defined`, `mock`, `createLogger`, `createSettingStore`, `createMockHttpClient`, `mockFetchResponse`, the `HttpError` factories, the `Temporal` clock spies. Imports `vitest` from YOUR devDependencies; never re-exported by the root barrel                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `@olivierzal/api-core/time-units`      | `MS_PER_SECOND`, `MS_PER_MINUTE`, `MS_PER_DAY`, `SESSION_REFRESH_AHEAD_MS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 `setting` persists a decorated accessor through your host's
 `SettingManager`, under a key that IS the accessor's name — renaming
 the accessor renames the stored key and strands the value ([the rule
-and its probe](CLAUDE.md)).
+and its probe](CLAUDE.md)). `syncDevices(params?)` is the method
+decorator factory that awaits the decorated method, then calls the
+host's `notifySync(params)` — `@syncDevices({ type })` forwards the
+payload, `@syncDevices()` notifies without one; the host's `notifySync`
+is a structural contract.
 
 ## The vocabulary seam
 
@@ -112,12 +117,52 @@ class MyAPI extends SessionAPI<MySyncParams> {
       authFailureStatuses: [HttpStatus.Unauthorized, HttpStatus.BadRequest],
     })
   }
+
+  protected override async doAuthenticate(
+    credentials: LoginCredentials,
+  ): Promise<void> {
+    try {
+      await this.login(credentials)
+    } catch (error) {
+      // The same statuses, spelled once: a rejection on them becomes
+      // the shared AuthenticationError (cause preserved); anything
+      // else is rethrown verbatim — as a BARE `throw error`, the
+      // catch-clause rethrow `only-throw-error` admits (a `?? error`
+      // one-liner is typed `unknown` there and refused).
+      const authError = this.toAuthFailure(
+        error,
+        'Vendor rejected the credentials',
+      )
+      if (authError !== null) {
+        throw authError
+      }
+      throw error
+    }
+  }
 }
 ```
 
 The four settings it persists are named by their accessors — `expiry`,
 `loginBackoffUntil`, `password`, `username` — so a host that already
 holds those keys keeps its stored values.
+
+## Testing
+
+The helpers every SDK suite used to copy come from the `./testing`
+subpath — it imports `vitest` from your devDependencies and is never
+re-exported by the root barrel:
+
+```ts title="testing"
+import {
+  createMockHttpClient,
+  createSettingStore,
+  mockTemporalNowInstant,
+} from '@olivierzal/api-core/testing'
+
+// YOUR HttpClient subclass, so the spy-wrapped transport is the one
+// your resolver accepts.
+const { client, requestSpy } = createMockHttpClient(HttpClient, baseURL)
+```
 
 ## Docs
 

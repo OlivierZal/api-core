@@ -15,7 +15,7 @@ import {
   createLogger,
   createServerError,
   createUnauthorizedError,
-} from '../helpers.ts'
+} from '../../src/testing/index.ts'
 
 describe(CompositePolicy, () => {
   it('empty composite runs the attempt verbatim', async () => {
@@ -96,6 +96,36 @@ describe(RateLimitPolicy, () => {
 })
 
 describe(AuthRetryPolicy, () => {
+  // The vocabulary's one public read: `SessionAPI.toAuthFailure`
+  // consults it, so a protocol spells its auth-failure statuses once.
+  it.each([
+    ['a 401', createUnauthorizedError('/x'), true],
+    ['a 400', createServerError(HttpStatus.BadRequest), false],
+    ['a 502', createServerError(HttpStatus.BadGateway), false],
+    ['a transport failure', new TypeError('fetch failed'), false],
+  ])(
+    'owns a 401 by default and nothing else: %s',
+    (_name, rejection: unknown, isOwned) => {
+      using guard = new RetryGuard(1000)
+      const policy = new AuthRetryPolicy(guard, vi.fn<() => Promise<boolean>>())
+
+      expect(policy.isAuthFailure(rejection)).toBe(isOwned)
+    },
+  )
+
+  it.each([
+    ['a 400', createServerError(HttpStatus.BadRequest)],
+    ['a 401', createUnauthorizedError('/x')],
+  ])('owns the injected statuses: %s', (_name, rejection: unknown) => {
+    using guard = new RetryGuard(1000)
+    const policy = new AuthRetryPolicy(guard, vi.fn<() => Promise<boolean>>(), [
+      HttpStatus.Unauthorized,
+      HttpStatus.BadRequest,
+    ])
+
+    expect(policy.isAuthFailure(rejection)).toBe(true)
+  })
+
   it('replays the attempt after a 401 when reauthenticate returns true', async () => {
     using guard = new RetryGuard(1000)
     const reauthenticate = vi

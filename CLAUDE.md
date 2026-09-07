@@ -57,9 +57,14 @@ status-code semantics, endpoint knowledge. The test is parameterizability:
 if the two consumers' copies differed only by data (keys, statuses,
 zones), the mechanism comes here and the data becomes a constructor or
 config parameter; if they differed structurally for protocol reasons,
-the module stays in its SDK. `parseOrThrow`/`ValidationError` stayed
-out on a second bar — they would couple this package's release cadence
-to zod's for a 14-line win.
+the module stays in its SDK. `parseOrThrow` stayed out on a second bar —
+its signature is `z.ZodType<T>`, so it would couple this package's
+release cadence to zod's for a 14-line win. `ValidationError` was
+refused with it until 1.3.0 on a reason that never applied to the
+class: it imports nothing from zod (the validator's error rides `cause`
+as `unknown`), and the two SDKs carried it as a byte-identical twin. It
+lives here now, `src/errors/validation.ts` through both barrels, and the
+SDKs re-export it exactly like `RegistrySyncError`.
 
 ## The redaction seat — non-negotiables
 
@@ -310,6 +315,45 @@ rateLimitHours?, redaction? }`, beside the user-facing `SessionAPIConfig`
 (`abortSignal`, `events`, `logger`, `settingManager`,
 `syncIntervalMinutes`), generic in the consumer's sync-params shape.
 
+**Since 1.3.0 the seam also offers one protected TEMPLATE helper,
+`toAuthFailure(error, message)`.** Both SDKs carried the sign-in
+normalization as module-level twins differing only by data —
+melcloud's `normalizeUnauthorized` (401, "MELCloud rejected the
+credentials") and heatzy's `toAuthFailure` (400 or 401, "Heatzy
+rejected the credentials") — and the status set was ALREADY a
+`SessionAPIOptions.authFailureStatuses` parameter, so heatzy spelled it
+twice. The helper narrows an `HttpError` whose status is in that
+vocabulary into `AuthenticationError` with the original as `cause` and
+answers `null` otherwise. **A subclass's `doAuthenticate` spells the
+`null` branch as a BARE rethrow, in two statements** — `const authError
+= this.toAuthFailure(error, '<Vendor> rejected the credentials')`, `if
+(authError !== null) throw authError`, then `throw error` — never as
+the one-liner `throw this.toAuthFailure(…) ?? error`. The one-liner
+was this paragraph's first prescription, and it does not lint in a
+consumer: under the family `library` preset,
+`@typescript-eslint/only-throw-error` (unknown disallowed) admits a
+catch-clause variable thrown bare as a rethrow, but the `??` expression
+whose right operand is that variable is typed `unknown` and refused
+("Expected an error object to be thrown") — reported by melcloud-api's
+dry adoption at its `src/api/home.ts:592` on 2026-09-07 and reproduced
+here the same day with a probe under this repo's own overlay (the
+one-liner: one error; the two-statement form: clean). No disable
+answers it — the family forbids new ones — and no helper shape does
+either: a `never`-returning throwing variant would have to throw its
+`unknown` parameter inside this package, which the same rule refuses
+here. The README's session snippet and `session-api.test.ts`'s fixture
+spell the two-statement form, so the pinned clauses exercise the shape
+both SDKs carry. The vocabulary stays spelled once: `AuthRetryPolicy`
+owns it and answers `isAuthFailure(error)` publicly, and the helper
+consults the policy rather than a second copy — the constructor's
+statement budget is spent, and a second array would be the twin
+problem inside one class. Pinned in `session-api.test.ts`
+("toAuthFailure": the default vocabulary, the injected one, the
+non-`HttpError` and off-vocabulary `null`s, and — thrown from
+`doAuthenticate` — that the narrowed error is what arms the login
+backoff while an off-vocabulary rejection arms nothing) and in
+`resilience-policies.test.ts` (the policy's two ownership tables).
+
 **The replicated `unicorn/prefer-await` disable did not cross.** Both
 twins guard `ensureSession`'s single-flight memoization with an inline
 disable, because `.finally()` on the hook's promise is what the rule
@@ -365,10 +409,12 @@ consumer would inherit.
 
 ### What stayed out, and why
 
-- **`requestData`, `safeRequest`, `classifyError`,
-  `normalizeUnauthorized`, the `Result` type.** They sit on the
-  zod/Result boundary and would drag zod's type surface into this
-  package's `.d.ts`; the standing verdict above refuses a zod entry.
+- **`requestData`, `safeRequest`, `classifyError`, the `Result`
+  type.** They sit on the zod/Result boundary and would drag zod's type
+  surface into this package's `.d.ts`; the standing verdict above
+  refuses a zod entry. (`normalizeUnauthorized` was filed here until
+  1.3.0 although it never touched that boundary — it is the
+  `toAuthFailure` template helper now, see the seam paragraph above.)
 - **The transport RESOLUTION (`instanceof HttpClient` +
   `DEFAULT_TIMEOUT_MS`) — SECURITY-LOAD-BEARING.** Each SDK decides
   whether a host-supplied `transport` is a usable client or a bag of
@@ -444,6 +490,51 @@ The class name is `SessionAPI`, settled: it names the MECHANISM rather
 than a position in either SDK's hierarchy, and leaves melcloud's
 `BaseAPI` free to stay `BaseAPI` on top of it.
 
+## The `syncDevices` decorator — factory form, generic, 1.3.0
+
+`src/decorators/sync-devices.ts` is the post-method sync notification
+both SDKs carried beside `setting`, and the one place they had DRIFTED
+in shape: melcloud's was a factory forwarding `{ type }`
+(`@syncDevices()`, `@syncDevices({ type })`), heatzy's a bare decorator
+forwarding nothing (`@syncDevices`). The concern is one — await the
+method, then call the host's `notifySync`, which is `SessionAPI`'s and
+already generic in `TSyncParams` — so the core carries melcloud's
+factory form, generic over the payload (`syncDevices<TParams>(params?)`),
+forwarding `params` verbatim to a structural host
+`{ notifySync?: (params?: TParams) => Promise<void> }` (`HasNotifySync`,
+unexported like `HasSettingManager` and listed in typedoc's
+`intentionallyNotExported`). Two verdicts the spelling records:
+
+- **The returned method carries the host contract in its `this` type**,
+  where the twins erased it behind a `this`-less return annotation. The
+  family's `no-unnecessary-type-parameters` rule refuses a type
+  parameter used once, and the second use is that `this`: it types the
+  body and a suite's `.call(host)`, and nothing more. Probed
+  2026-09-07 before writing this down — a host whose `notifySync` takes
+  another shape, a host with no hook at all and a mismatched payload
+  all pass the native compiler (a TC39 application compares the
+  decorator's return against the method's own type, which carries no
+  `this`). The contract is structural and documented, NOT enforced at
+  the application site — exactly its standing in both twins. The
+  default is `never`, not `unknown`, so that a suite handing a typed
+  `notifySync` to a bare `syncDevices()` through `.call` fits under
+  strict function types; `unknown` would refuse every typed hook there.
+- **The payload is forwarded verbatim, `undefined` included.**
+  melcloud's copy forwarded `{ type }` even when built bare (an object
+  with an `undefined` `type`); the core forwards what it was built
+  with, so a kernel clause asserting
+  `toHaveBeenCalledWith({ type: undefined })` is the adoption's to
+  reword (`toHaveBeenCalledWith(undefined)`, or `@syncDevices({})` at
+  the call site).
+
+heatzy's adoption is its MAJOR: its three call sites become
+`@syncDevices()` and the decorator it re-exports changes shape. Pinned
+in `tests/unit/sync-devices-decorator.test.ts` — order (target first,
+then notify), verbatim forwarding, the bare form, the hook-less host,
+propagation of a rejecting hook, no notification on a rejecting method,
+and a real TC39 application through the swc plugin with both forms on
+one typed host.
+
 ## Runtime floors
 
 - **Engines: `>=22.20.0`, derived, not copied.** The floor is the
@@ -489,9 +580,10 @@ the last importers of `APICallLogData` and `LoggableRequestConfig`) —
 the two SDKs are the only repos that pin the package (both at 1.2.0);
 the apps reach it through them, and the `fireAndForget` they import
 comes from `@olivierzal/homey-kit`, not from here. The root barrel
-exports 67 names, 42 values and 25 types; 22 of them — fifteen values,
-seven types — have NO external importer, through the root or through
-a subpath:
+exports 69 names, 44 values and 25 types (1.3.0 added `ValidationError`
+and `syncDevices`, both bound by the SDKs' 1.3.0 adoptions and neither
+counted below); 22 of them — fifteen values, seven types — have NO
+external importer, through the root or through a subpath:
 
 - The fifteen values: the policy toolkit (`AuthRetryPolicy`,
   `CompositePolicy`, `RateLimitPolicy`, `TransientRetryPolicy`, the
@@ -519,42 +611,71 @@ a subpath:
 They STAY exported: an unconstructed export costs a consumer nothing, a
 host composing its own client outside `SessionAPI` may want exactly
 these pieces, and trimming them would be a major for nothing.
-`api-surface.test.ts` pins the WHOLE 42-name value surface, not this
+`api-surface.test.ts` pins the WHOLE 44-name value surface, not this
 subset — an accidental drop of any value export fails there — and no
 test pins the type exports: the eighteen imported ones are held by the
 consumers' adoption typechecks, the seven above by this ledger alone.
 This verdict exists so a future audit reads a decision here instead of
 re-deriving one; when the barrel changes, re-count it — never trim it.
+The `./testing` subpath is outside this ledger: a separate entry the
+root barrel never re-exports, whose importers are the SDKs' suites, not
+their code.
 
-## Test helpers stay local — interim verdict, 2026-09-06
+## The `./testing` subpath — verdict 2026-09-07, shipped in 1.3.0
 
-`tests/helpers.ts` (`cast`, `mockTemporalNowInstant`, `defined`,
-`createLogger`, `mockFetchResponse`, `createHttpError` /
-`createServerError` / `createUnauthorizedError`) is a hand-maintained
-twin of melcloud-api's `tests/helpers.ts` (which exports all eight) and
-of heatzy-api's (which carries `cast`, `mockTemporalNowInstant`,
-`defined`, `createLogger`, `mockFetchResponse` and `createServerError`
-— its `createHttpError` is module-private and it has no
-`createUnauthorizedError`), with no shared owner: this package exports no
-`./testing` subpath, and neither SDK depends on homey-kit, whose
-`src/testing` owns the apps' helpers. The twin discipline this package
-exists to end (top of this file) was about SHIPPED mechanism, where a
-missed mirror leaked credentials; these helpers ship nowhere, which is
-why the cost/benefit differs. The 2026-09-06 audit weighed a `./testing`
-subpath here (the homey-kit precedent) and it is DEFERRED, not refused:
-it would ship vitest-importing code through a production dependency
-onto the apps' device trees, and couple every helper tweak to a release
-plus two pin-bump PRs — a cost the owner accepts explicitly, in a
-release of its own, or not at all. Until that verdict the twins are
-deliberate: a fix to any of them (the `mockTemporalNowInstant`
-native-Temporal fake-timer trap is the kind that matters) is mirrored
-by hand in all three, and this paragraph is what the next audit reads
-instead of re-deriving the gap. Known drift, harmless today: this copy
-and melcloud's null the body on 204, the one null-body status their
-suites stage (this suite's calls pass 200, 204, 400, 401, 403, 429, 500
-and 502), where heatzy's `mockFetchResponse` (since #1240) always
-serialises the body — its suite stages 400 and 500 only, and the core's
-own suite models the null-body statuses.
+`src/testing/index.ts` owns the test helpers the two SDK suites and
+this package's own carried as a three-way hand-maintained twin
+(`cast`, `defined`, `mock`, `createLogger`, `createSettingStore`,
+`createMockHttpClient`, `mockFetchResponse`, `createHttpError` /
+`createServerError` / `createUnauthorizedError`,
+`mockTemporalNowInstant` / `mockTemporalNowZoned`), published as
+`@olivierzal/api-core/testing` and consumed by this repo's suites from
+`src/testing/index.ts` — `tests/helpers.ts` is gone. The 2026-09-06
+audit had DEFERRED the subpath (it ships vitest-importing code through
+a production dependency onto the apps' device trees, and couples every
+helper tweak to a release plus two pin-bump PRs); the family's breaking
+wave accepted that cost, for the reason the twin discipline already
+failed once at the top of this file: the `mockTemporalNowInstant`
+native-Temporal fake-timer trap is exactly the fix that must reach
+every copy, and heatzy's `mockFetchResponse` had already drifted from
+the other two.
+
+Four rules hold the seat:
+
+- **`vitest` is imported and declared nowhere** — no dependency, no
+  peer, optional or not. The SDKs install this package as a PRODUCTION
+  dependency of the Homey apps, and homey-kit measured what an optional
+  `vitest` peer does there: 39 packages and 39 MB of test framework on
+  a Homey, vulnerabilities included (`npm ci --omit=dev` still installs
+  a recorded optional peer). The consumer already holds vitest as a
+  devDependency; a missing one fails loudly at the import, in a dev
+  context. `eslint.config.ts` carries the homey-kit overlay that admits
+  the devDependency import under `src/testing/**` alone.
+- **The root barrel never re-exports it.** A production import of
+  `@olivierzal/api-core` must not load vitest; `export-map.test.ts`
+  keeps `testing` out of `DIRECTORY_REEXPORTS` and resolves the subpath
+  to its directory's `index.ts` (the one `index.ts` case in the map);
+  typedoc documents it as a second entry point, under its own `Testing`
+  category.
+- **`mockFetchResponse` nulls the body on 204, 205 and 304** — the
+  Fetch spec's null-body statuses the `Response` constructor can build
+  at all; it refuses 101 and 103 outright (outside its 200–599 range,
+  measured on Node 26.7), so listing them would be dead data. That
+  settles the recorded drift: this copy and melcloud's nulled 204 only,
+  heatzy's pre-#1240 copy carried the wider set.
+- **`createMockHttpClient(clientClass, baseURL)` takes the transport
+  CLASS**, because each SDK's transport is its own thin `HttpClient`
+  subclass — the one seating its redaction vocabulary and the one its
+  `instanceof` resolver accepts (the security-load-bearing verdict
+  under "What stayed out"). The helper returns that subclass's type.
+
+Coverage runs over `src/testing` like any other module (100 % on all
+four axes, pinned by `tests/unit/testing-helpers.test.ts`), so a helper
+is proven here before a consumer inherits it. Adoption is the SDKs'
+1.3.0 pin bump: each trims its `tests/helpers.ts` to what is its own
+(melcloud's `okValue`, `matchObject`, `mockResponse`; heatzy's
+`createMockAdapter`, `mockResponse`) and imports the rest from the
+subpath.
 
 ## Governance files
 
