@@ -136,6 +136,8 @@ const sortedKeys = (calls: [string, ...unknown[]][]): string[] =>
 class Harness extends SessionAPI<SyncParams> {
   public authError?: Error | undefined
 
+  public authGate?: Promise<void> | undefined
+
   public autoSyncError?: Error | undefined
 
   public enforceError?: Error | undefined
@@ -311,7 +313,7 @@ class Harness extends SessionAPI<SyncParams> {
 
   protected async doAuthenticate(credentials: LoginCredentials): Promise<void> {
     this.seen.push('doAuthenticate')
-    await Promise.resolve()
+    await (this.authGate ?? Promise.resolve())
     this.onDoAuthenticate?.()
     if (this.authError !== undefined) {
       // The prescribed consumer shape: the narrowed error where the
@@ -849,6 +851,116 @@ describe(SessionAPI, () => {
       await harness.authenticate(CREDENTIALS)
 
       expect(store.values.has('loginBackoffUntil')).toBe(false)
+    })
+  })
+
+  describe('a superseded sign-in', () => {
+    // `#finishLogin` asked "did a logOut land after me?" and used the
+    // answer for "is what I stored still current?". The two diverge the
+    // moment ANOTHER sign-in is accepted after this one started, and
+    // there is no mutual exclusion between an explicit `authenticate`
+    // and the memoized resume.
+    it('does not wipe the session a newer sign-in established', async () => {
+      const store = createStore()
+      using harness = new Harness({ settingManager: store.manager })
+      const gate = Promise.withResolvers<undefined>()
+      harness.authGate = gate.promise
+      const stale = harness.authenticate({
+        password: 'pwA',
+        username: 'a@example.com',
+      })
+      await Promise.resolve()
+      harness.authGate = undefined
+      harness.logOut()
+      await harness.authenticate({ password: 'pwB', username: 'b@example.com' })
+      gate.resolve(undefined)
+      await stale
+
+      expect(store.values.get('username')).toBe('b@example.com')
+      expect(store.values.get('password')).toBe('pwB')
+    })
+
+    // The inverse ordering, and the one a count-based guard suppresses:
+    // the later-STARTED sign-in is answered second. It is still the
+    // user's more recent intention, so it must own the stored pair and
+    // run its epilogue — a background resume that began first and was
+    // accepted last must not take the result from it.
+    // A sign-out lands, then a later sign-in STARTS and is refused. The
+    // superseded flight is the only one to have claimed the session
+    // since, so its own `doAuthenticate` must not leave a live session
+    // standing behind an explicit sign-out.
+    it('clears a session re-established behind a sign-out nothing newer claimed', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+      const gate = Promise.withResolvers<undefined>()
+      harness.authGate = gate.promise
+      const stale = harness.authenticate({
+        password: 'pwA',
+        username: 'a@example.com',
+      })
+      await Promise.resolve()
+      harness.logOut()
+      harness.authGate = undefined
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(
+        harness.authenticate({ password: 'pwB', username: 'b@example.com' }),
+      ).rejects.toThrow('rejected')
+
+      harness.authError = undefined
+      gate.resolve(undefined)
+      await stale
+
+      expect(harness.isAuthenticated()).toBe(false)
+      // Twice: the sign-out itself, then the raced flight discarding the
+      // session its own `doAuthenticate` had just re-established.
+      expect(
+        harness.seen.filter((step) => step === 'clearPersistedSession'),
+      ).toHaveLength(2)
+      expect(store.values.has('username')).toBe(false)
+    })
+
+    it('lets the later sign-in win even when it is answered second', async () => {
+      const store = createStore()
+      using harness = new Harness({ settingManager: store.manager })
+      const gate = Promise.withResolvers<undefined>()
+      const earlier = harness.authenticate({
+        password: 'pwA',
+        username: 'a@example.com',
+      })
+      await Promise.resolve()
+      harness.authGate = gate.promise
+      const later = harness.authenticate({
+        password: 'pwB',
+        username: 'b@example.com',
+      })
+
+      await earlier
+
+      gate.resolve(undefined)
+      await later
+
+      expect(store.values.get('username')).toBe('b@example.com')
+      expect(store.values.get('password')).toBe('pwB')
+    })
+
+    it('does not restore the pair a newer sign-in replaced', async () => {
+      const store = createStore()
+      using harness = new Harness({ settingManager: store.manager })
+      const gate = Promise.withResolvers<undefined>()
+      harness.authGate = gate.promise
+      const stale = harness.authenticate({
+        password: 'pwA',
+        username: 'a@example.com',
+      })
+      await Promise.resolve()
+      harness.authGate = undefined
+      await harness.authenticate({ password: 'pwB', username: 'b@example.com' })
+      gate.resolve(undefined)
+      await stale
+
+      expect(store.values.get('username')).toBe('b@example.com')
+      expect(store.values.get('password')).toBe('pwB')
     })
   })
 

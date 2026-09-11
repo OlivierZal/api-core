@@ -392,6 +392,40 @@ NOT either — the server already accepted the credentials, so locking
 the user out over a registry problem would be wrong. Only the `catch`
 around `doAuthenticate` can arm it.
 
+**The sign-in epilogue is gated on the SIGN-IN, not only on the
+sign-out.** `authenticate` captured the logOut epoch and `#finishLogin`
+tested it alone — which answers "did a sign-out land after me?" and was
+used to answer "is what I stored still current?". The two diverge the
+moment ANOTHER sign-in is accepted after this one started, and nothing
+excludes that: an explicit `authenticate` sits outside the
+`resumeSession` memo and outside the backoff gate by design. Two shapes
+followed, both after `authenticate` had reported success — an account
+switch silently reverted to the previous pair, and with a logOut in
+between the stale flight's epilogue DELETED the session and both
+credentials the newer sign-in had just established. Since 1.5.0 ONE method settles
+it — `#settleAcceptedSignIn` — on two independent questions, in this
+order. A SIGN-OUT landed while the flight was in the air:
+`doAuthenticate` has just re-established a session the user asked to
+end, so it is cleared — UNLESS a sign-in has CLAIMED the session since
+that sign-out (`#hasAcceptedSinceLogOut`, reset by every `logOut`), in
+which case clearing would destroy what the claimant established.
+Checking supersession FIRST instead gets this wrong: a later sign-in
+that starts and is then REFUSED would leave the superseded flight's
+session standing behind an explicit sign-out — pinned by its own clause.
+Otherwise, a later sign-in STARTED: it is the user's more recent
+intention and owns the stored pair, whichever of the two the server
+answered first. START order (`#signInSequence`), never acceptance order
+— a background resume that began first can be answered LAST, and a
+guard counting acceptances would suppress the explicit sign-in's
+epilogue instead of the resume's, also pinned. `#finishLogin` no longer
+takes the epoch: the verdict lives in one place now. A superseded flight
+still RESOLVES: the server accepted its pair and nothing failed. What NO epilogue can undo is the
+session store — `doAuthenticate` replaces it wholesale, so a stale
+flight resolving last leaves its own material there; the next request
+settles it, serving or answering 401 and re-authenticating over the
+stored pair, which is the newer one. Both shapes are pinned by clauses
+that hold one sign-in open on a gate.
+
 **`ensureSession`'s single flight excludes the refresh's OWN traffic,
 or it awaits itself.** `performSessionRefresh` signs in, and the
 enforced post-auth registry sync that follows issues requests — each of

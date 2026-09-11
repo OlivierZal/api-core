@@ -243,6 +243,13 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   // One event per loss episode: rearmed by any cycle observed
   // authenticated again (including the post-auth sync of a re-login).
+  // Cleared by every `logOut`, set by every acceptance. It answers the
+  // one question a raced sign-out cannot: has a sign-in CLAIMED the
+  // session since the user asked to end it? If one has, a flight that
+  // started before that sign-out must not clear — it would destroy what
+  // the claimant established.
+  #hasAcceptedSinceLogOut = false
+
   #hasEmittedAuthenticationLost = false
 
   // Verdict recorded against the STORED credential: the server
@@ -298,6 +305,13 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // constructor receives, and the constructor's statement budget is
   // spent on the seats that do.
   readonly #retryGuard = new RetryGuard(DEFAULT_AUTH_RETRY_COOLDOWN_MS)
+
+  // Incremented when a sign-in STARTS, so the epilogue can tell whether
+  // a more recent intention has been expressed since. Acceptance order
+  // cannot answer that: a background resume started first can be
+  // accepted after an explicit sign-in, and it is the explicit one that
+  // must own the stored pair either way.
+  #signInSequence = 0
 
   readonly #syncManager: SyncManager
 
@@ -527,6 +541,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    */
   public async authenticate(credentials: LoginCredentials): Promise<void> {
     const epoch = this.#logOutEpoch
+    const sequence = this.#nextSignInTicket()
     try {
       await this.doAuthenticate(credentials)
     } catch (error) {
@@ -537,15 +552,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     // below can un-accept it: `#finishLogin` may still reject, but on
     // the registry, never on the credential.
     this.#acceptedSignIns += 1
-    // An accepted pair also closes any recorded refusal episode: the
-    // stored credential is the one the server just took.
-    this.#isCredentialRefused = false
-    // Only a server-accepted pair reaches the settings store: writing
-    // it earlier would let a mistyped attempt overwrite working
-    // credentials. The session store needs no touch here — the
-    // `doAuthenticate` contract replaces it wholesale on success.
-    this.applyCredentials(credentials.username, credentials.password)
-    await this.#finishLogin(epoch)
+    await this.#settleAcceptedSignIn(credentials, epoch, sequence)
   }
 
   /**
@@ -595,6 +602,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    */
   public logOut(): void {
     this.#logOutEpoch += 1
+    this.#hasAcceptedSinceLogOut = false
     this.clearPersistedSession()
     this.username = ''
     this.password = ''
@@ -931,6 +939,21 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return this.reuseSucceeded()
   }
 
+  // The epilogue of a sign-in this client still owns — split out so
+  // `authenticate` stays within its statement budget while keeping the
+  // supersession guard above it, where the decision belongs.
+  async #applyAcceptedLogin(credentials: LoginCredentials): Promise<void> {
+    // An accepted pair also closes any recorded refusal episode: the
+    // stored credential is the one the server just took.
+    this.#isCredentialRefused = false
+    // Only a server-accepted pair reaches the settings store: writing
+    // it earlier would let a mistyped attempt overwrite working
+    // credentials. The session store needs no touch here — the
+    // `doAuthenticate` contract replaces it wholesale on success.
+    this.applyCredentials(credentials.username, credentials.password)
+    await this.#finishLogin()
+  }
+
   #armLoginBackoff(error: unknown): void {
     if (!(error instanceof AuthenticationError)) {
       // A transport failure is not a rejected login: the normal retry
@@ -1050,6 +1073,14 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     }, delayMs)
   }
 
+  // Everything a sign-out leaves behind when the sign-in it raced was
+  // the only one to claim the session since.
+  #discardRacedSignIn(): void {
+    this.clearPersistedSession()
+    this.username = ''
+    this.password = ''
+  }
+
   #emitAuthenticationLostOnce(): void {
     if (this.#hasEmittedAuthenticationLost) {
       return
@@ -1064,13 +1095,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // (e.g. the user signed out during a background resume) wins —
   // discard what the login just stored and stay signed out. Otherwise
   // clear the backoff gate and run the enforced post-auth sync.
-  async #finishLogin(epoch: number): Promise<void> {
-    if (this.#logOutEpoch !== epoch) {
-      this.clearPersistedSession()
-      this.username = ''
-      this.password = ''
-      return
-    }
+  async #finishLogin(): Promise<void> {
     this.#setLoginBackoffUntil(null)
     // The pause is over, so the retry it was deferred to has nothing
     // left to do — letting it fire would spend a sign-in round-trip
@@ -1123,6 +1148,15 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
     this.#hasEmittedAuthenticationLost = false
     this.events.emitAuthenticationRestored()
+  }
+
+  // The START stamp a sign-in carries through its own epilogue. Bumped
+  // on entry, never on acceptance: the epilogue's question is whether a
+  // more recent INTENTION has been expressed since, and a resume that
+  // began first can be answered last.
+  #nextSignInTicket(): number {
+    this.#signInSequence += 1
+    return this.#signInSequence
   }
 
   // The memoized body behind `ensureSession`'s single-flight handle.
@@ -1231,6 +1265,48 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // value and deletes the key outright when the host delegates `unset`.
   #setLoginBackoffUntil(until: number | null): void {
     this.loginBackoffUntil = until === null ? '' : String(until)
+  }
+
+  // The ONE place that decides what an accepted sign-in is still
+  // entitled to do, on two independent questions.
+  //
+  // A SIGN-OUT landed while this one was in flight: `doAuthenticate` has
+  // just re-established a session the user asked to end, so it is
+  // cleared — UNLESS a sign-in has claimed the session since that
+  // sign-out, in which case clearing would destroy what the claimant
+  // established after its own `authenticate` reported success. Nothing
+  // below runs either way: the stored pair is not this flight's to
+  // write.
+  //
+  // A later sign-in STARTED: it is the user's more recent intention and
+  // owns the stored pair, whichever of the two the server answered
+  // first. Start order, never acceptance order — a background resume
+  // that began first can be answered last, and counting acceptances
+  // would suppress the explicit sign-in's epilogue instead of the
+  // resume's.
+  //
+  // A superseded flight still RESOLVES: the server accepted its pair and
+  // nothing failed. What no epilogue can undo is the session store —
+  // `doAuthenticate` replaces it wholesale — so the next request settles
+  // it, serving or answering 401 and re-authenticating over the stored
+  // pair, which these two guards keep as the newer one.
+  async #settleAcceptedSignIn(
+    credentials: LoginCredentials,
+    epoch: number,
+    sequence: number,
+  ): Promise<void> {
+    const hasClaimantSinceLogOut = this.#hasAcceptedSinceLogOut
+    this.#hasAcceptedSinceLogOut = true
+    if (this.#logOutEpoch !== epoch) {
+      if (!hasClaimantSinceLogOut) {
+        this.#discardRacedSignIn()
+      }
+      return
+    }
+    if (this.#signInSequence !== sequence) {
+      return
+    }
+    await this.#applyAcceptedLogin(credentials)
   }
 
   // Sync-cycle epilogue, split on the logOut epoch. A logOut that
