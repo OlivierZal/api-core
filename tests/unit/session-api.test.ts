@@ -33,6 +33,9 @@ import {
 } from '../../src/testing/index.ts'
 import { MS_PER_MINUTE } from '../../src/time-units.ts'
 
+// The throttle cap `session-api.ts` bounds a deferred retry by.
+const THROTTLE_CAP_MINUTES = 120
+
 type FetchInit = NonNullable<Parameters<typeof fetch>[1]>
 
 interface Store {
@@ -691,6 +694,132 @@ describe(SessionAPI, () => {
       using harness = new Harness({ settingManager: store.manager })
 
       await expect(harness.resumeSession()).resolves.toBe(false)
+      expect(harness.seen).not.toContain('doAuthenticate')
+    })
+
+    // The gate refuses WITHOUT a wire call, so no sync cycle runs and
+    // `planNext()` — the only thing that arms the heartbeat — is never
+    // reached. A boot landing inside the window used to stay dormant
+    // for the life of the process, having announced a loss it could
+    // never retract, with nothing in the log to explain the silence.
+    it('defers one restore to the deadline instead of going dormant', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      using harness = new Harness({ logger, settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      expect(harness.seen).not.toContain('doAuthenticate')
+      expect(logger.log).toHaveBeenCalledWith(
+        expect.stringContaining('deferred for 1 min'),
+      )
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(harness.seen).toContain('doAuthenticate')
+    })
+
+    it('defers a window once, however many resumes are refused', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      using harness = new Harness({ logger, settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      expect(logger.log).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining('Automatic sign-ins are paused'),
+      )
+    })
+
+    // The deferred retry can itself be rejected, arming a fresh window.
+    // Without a rearm there the client goes dormant again the moment
+    // that one retry fires and fails — so the whole cycle is driven:
+    // deferred, fired, rejected, deferred again.
+    it('defers again when the deferred retry is itself rejected', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      using harness = new Harness({ logger, settingManager: store.manager })
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      expect(harness.seen).not.toContain('doAuthenticate')
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(harness.seen).toContain('doAuthenticate')
+      expect(logger.log).toHaveBeenCalledTimes(2)
+    })
+
+    // `setTimeout` clamps a delay above 2^31-1 ms to ONE tick, so a
+    // corrupt deadline far enough out would fire the retry immediately,
+    // find the gate still shut and re-schedule — a hot loop. The delay
+    // is bounded by the longest pause the code can legitimately arm.
+    it('bounds an absurd deadline instead of firing at once', async () => {
+      const store = withCredentials(createStore())
+      store.values.set('loginBackoffUntil', String(Date.now() + 2 ** 40))
+      using harness = new Harness({ settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(harness.seen).not.toContain('doAuthenticate')
+
+      await vi.advanceTimersByTimeAsync(THROTTLE_CAP_MINUTES * MS_PER_MINUTE)
+
+      expect(harness.seen).not.toContain('doAuthenticate')
+    })
+
+    // The pause is over, so the retry has nothing left to do — letting
+    // it fire would spend a sign-in round-trip against the endpoint the
+    // upstream throttles hardest.
+    it('drops the deferred restore once a sign-in is accepted', async () => {
+      const store = withCredentials(createStore())
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      using harness = new Harness({ settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      await harness.authenticate(CREDENTIALS)
+      const signIns = harness.seen.filter((step) => step === 'doAuthenticate')
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(
+        harness.seen.filter((step) => step === 'doAuthenticate'),
+      ).toStrictEqual(signIns)
+    })
+
+    it('drops the deferred restore on an explicit sign-out', async () => {
+      const store = withCredentials(createStore())
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      using harness = new Harness({ settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      harness.logOut()
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(harness.seen).not.toContain('doAuthenticate')
+    })
+
+    it('drops the deferred restore on disposal', async () => {
+      const store = withCredentials(createStore())
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      const harness = new Harness({ settingManager: store.manager })
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      harness[Symbol.dispose]()
+
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
       expect(harness.seen).not.toContain('doAuthenticate')
     })
 

@@ -392,6 +392,32 @@ NOT either — the server already accepted the credentials, so locking
 the user out over a registry problem would be wrong. Only the `catch`
 around `doAuthenticate` can arm it.
 
+**The backoff gate owes itself one retry, because refusing costs a
+heartbeat.** `#attemptResumeSession` returns early when
+`#isLoginBackedOff()` reads true, WITHOUT a wire call — so no sync cycle
+runs, and `planNext()` in the cycle epilogue is the only thing that ever
+arms the auto-sync timer. A boot that lands inside the window therefore
+armed nothing at all and stayed dormant for the life of the process,
+having emitted `onAuthenticationLost` it could never retract, with not
+one line in the log to explain the silence (both apps' only heartbeat is
+this timer: neither issues a periodic read of its own). Since 1.4.0 the
+refusal schedules ONE `DisposableTimeout` at the deadline the gate
+already knows and says so at `log` level. It is idempotent — a window is
+deferred once — and it rearms from `#reportResumeFailure`, because the
+deferred retry can itself be rejected and arm a fresh window. A
+transport blip arms no window, so it schedules nothing. The timer is
+cleared by `logOut`, by `#finishLogin` (an accepted sign-in ends the
+pause, so letting the retry fire would spend a round-trip against the
+endpoint the upstream throttles hardest) and by `[Symbol.dispose]`, and
+unrefs itself, so it can neither outlive an explicit sign-out nor hold a
+process open. The DELAY is bounded by `LOGIN_BACKOFF_THROTTLE_MS`, not
+taken from the deadline whole: `setTimeout` clamps anything above
+2^31-1 ms to ONE tick, so a corrupt persisted deadline far enough out
+would fire the retry immediately, find the gate still shut and
+re-schedule — a hot loop. Bounding it re-checks an absurd deadline at
+the longest horizon the code can legitimately arm, the same principle
+that already reads a non-numeric deadline as no pause at all.
+
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
 the BEST-EFFORT `syncRegistry`: `initialize()` has no try/catch and
