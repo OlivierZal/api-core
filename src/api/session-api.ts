@@ -25,6 +25,7 @@ import {
   type ResiliencePolicy,
   AuthRetryPolicy,
   CompositePolicy,
+  DisposableTimeout,
   RateLimitGate,
   RateLimitPolicy,
   RetryGuard,
@@ -231,6 +232,13 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // state (rate-limit gate, retry guard) lives in the policy's
   // injected dependencies, not in the policy itself.
   readonly #authRetryPolicy: AuthRetryPolicy
+
+  // The one retry the login-backoff gate owes itself. The gate refuses
+  // WITHOUT a wire call, so no sync cycle runs and `planNext()` — the
+  // only thing that arms the heartbeat — is never reached. A boot
+  // landing inside the window would otherwise stay dormant for the life
+  // of the process, having announced a loss it can never retract.
+  readonly #backoffRetry = new DisposableTimeout()
 
   // One event per loss episode: rearmed by any cycle observed
   // authenticated again (including the post-auth sync of a re-login).
@@ -584,6 +592,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     this.username = ''
     this.password = ''
     this.#setLoginBackoffUntil(null)
+    this.#backoffRetry.clear()
     this.clearSync()
     this.clearRegistry()
   }
@@ -664,6 +673,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * Releases the auto-sync timer and any retry-guard window; the instance must not be reused after disposal.
    */
   public [Symbol.dispose](): void {
+    this.#backoffRetry[Symbol.dispose]()
     this.#syncManager[Symbol.dispose]()
     this.#retryGuard[Symbol.dispose]()
   }
@@ -929,19 +939,11 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // racing the login-backoff gate.
   async #attemptResumeSession(): Promise<boolean> {
     if (this.#isLoginBackedOff()) {
+      this.#deferResumeToBackoffDeadline()
       return false
     }
     const credentials = this.#resolvePersistedCredentials()
-    if (credentials === null) {
-      return false
-    }
-    const acceptedBefore = this.#acceptedSignIns
-    try {
-      await this.authenticate(credentials)
-      return true
-    } catch (error) {
-      return this.#reportResumeFailure(error, acceptedBefore)
-    }
+    return credentials === null ? false : this.#runStoredSignIn(credentials)
   }
 
   /**
@@ -998,6 +1000,41 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return new CompositePolicy(policies)
   }
 
+  // Schedule the single retry the gate's own deadline is already known
+  // for, and say in the log why nothing was attempted — a silence a
+  // diagnostic report cannot explain is half the defect. Idempotent: a
+  // window is deferred once, and a deadline that is not armed (a
+  // transport blip arms none) schedules nothing.
+  #deferResumeToBackoffDeadline(): void {
+    if (this.#backoffRetry.isActive || !this.#isLoginBackedOff()) {
+      return
+    }
+    const remainingMs =
+      Number(this.loginBackoffUntil) - Temporal.Now.instant().epochMilliseconds
+    // `setTimeout` clamps a delay above 2^31-1 ms to ONE tick, so a
+    // corrupt persisted deadline far enough in the future would fire
+    // the retry immediately, find the gate still shut and re-schedule —
+    // a hot loop. The longest pause this code can legitimately arm is
+    // the throttle cap, so an absurd deadline is re-checked at that
+    // horizon rather than trusted whole. Same principle as reading a
+    // non-numeric deadline as no pause: never let bad data drive.
+    const delayMs = Math.min(remainingMs, LOGIN_BACKOFF_THROTTLE_MS)
+    // The figure is the DELAY, not the remaining pause: the two differ
+    // whenever the deadline is absurd and the cap bites, and a line
+    // promising a horizon the timer will not honour is worse than none.
+    // `min` rather than `minutes` so the line needs no pluralisation.
+    this.logger.log(
+      `Automatic sign-ins are paused — the session restore is deferred for ${String(Math.ceil(delayMs / MS_PER_MINUTE))} min`,
+    )
+    this.#backoffRetry.schedule(() => {
+      fireAndForget(
+        this.resumeSession(),
+        this.logger,
+        'Session restore after the login backoff failed:',
+      )
+    }, delayMs)
+  }
+
   #emitAuthenticationLostOnce(): void {
     if (this.#hasEmittedAuthenticationLost) {
       return
@@ -1020,6 +1057,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       return
     }
     this.#setLoginBackoffUntil(null)
+    // The pause is over, so the retry it was deferred to has nothing
+    // left to do — letting it fire would spend a sign-in round-trip
+    // against the endpoint the upstream throttles hardest.
+    this.#backoffRetry.clear()
     try {
       await this.enforceRegistrySync()
     } catch (error) {
@@ -1113,6 +1154,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     ) {
       this.#isCredentialRefused = true
     }
+    // A rejected sign-in has just armed a fresh window. Without this the
+    // gate's own retry would be the only one, and the client would go
+    // dormant again the moment it fires and fails.
+    this.#deferResumeToBackoffDeadline()
     return false
   }
 
@@ -1122,6 +1167,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       return null
     }
     return { password, username }
+  }
+
+  // The sign-in half of a resume, split out so the gate and the
+  // credential check stay a readable preamble rather than one function
+  // doing both.
+  async #runStoredSignIn(credentials: LoginCredentials): Promise<boolean> {
+    const acceptedBefore = this.#acceptedSignIns
+    try {
+      await this.authenticate(credentials)
+      return true
+    } catch (error) {
+      return this.#reportResumeFailure(error, acceptedBefore)
+    }
   }
 
   // The duration clock is `performance.now()`, not the wall clock: a
