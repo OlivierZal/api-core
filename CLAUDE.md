@@ -392,6 +392,25 @@ NOT either — the server already accepted the credentials, so locking
 the user out over a registry problem would be wrong. Only the `catch`
 around `doAuthenticate` can arm it.
 
+**`ensureSession`'s single flight excludes the refresh's OWN traffic,
+or it awaits itself.** `performSessionRefresh` signs in, and the
+enforced post-auth registry sync that follows issues requests — each of
+which passes back through `ensureSession`. Joining the in-flight handle
+there awaits the very promise that is waiting on it: every request on
+the client hangs forever, with nothing logged and no timeout to end it.
+What had been keeping it alive was only that `needsSessionRefresh()`
+usually reads `false` by then; a session whose expiry cannot be parsed
+(Classic's schema accepts any string, the ASP.NET `0001-01-01` sentinel
+included) keeps it `true` and closes the loop. Since 1.5.0 `#refresh`
+runs `performSessionRefresh` inside a per-instance
+`AsyncLocalStorage`, and `ensureSession` returns early when it finds
+itself inside that scope. The store is per INSTANCE, never per module:
+two clients share a process, and one's refresh must never excuse the
+other's requests from their own gate. Pinned by a clause that re-enters
+`ensureSession` from the refresh after one microtask — the shape the
+wire round-trip produces — and which hangs to the suite timeout without
+the guard.
+
 **The backoff gate owes itself one retry, because refusing costs a
 heartbeat.** `#attemptResumeSession` returns early when
 `#isLoginBackedOff()` reads true, WITHOUT a wire call — so no sync cycle

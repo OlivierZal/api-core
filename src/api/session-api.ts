@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 
 import type { LoginCredentials } from '../types/index.ts'
@@ -275,6 +276,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // promise instead of each triggering their own round-trip — prevents
   // the thundering-herd pattern on token expiry.
   #refreshPromise: Promise<void> | null = null
+
+  // The async scope a refresh runs inside, so its OWN descendants can
+  // be told apart from a genuinely concurrent caller. Per instance, not
+  // per module: two clients share a process, and one's refresh must
+  // never excuse the other's requests from their own gate.
+  readonly #refreshScope = new AsyncLocalStorage<true>()
 
   // Baseline of `#acceptedSignIns` when the in-flight resume began:
   // lets a caller joining the flight read the verdict the instant the
@@ -765,7 +772,15 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    *    promise.
    */
   protected async ensureSession(): Promise<void> {
-    if (!this.needsSessionRefresh()) {
+    // A refresh's OWN traffic re-enters here: `performSessionRefresh`
+    // signs in, and the enforced post-auth registry sync that follows
+    // issues requests, each of which passes through this gate. Joining
+    // the in-flight handle there awaits the very promise that is
+    // waiting on it — every request on the client then hangs forever,
+    // with nothing logged and no timeout to end it. Descendants of the
+    // refresh therefore skip the join; a genuinely concurrent caller,
+    // outside that scope, still shares the single flight.
+    if (!this.needsSessionRefresh() || this.#refreshScope.getStore() === true) {
       return
     }
     this.#refreshPromise ??= this.#refresh()
@@ -1117,7 +1132,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // no-`.finally()` rule intact.
   async #refresh(): Promise<void> {
     try {
-      await this.performSessionRefresh()
+      await this.#refreshScope.run(true, async () =>
+        this.performSessionRefresh(),
+      )
     } finally {
       this.#refreshPromise = null
     }

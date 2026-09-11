@@ -148,6 +148,8 @@ class Harness extends SessionAPI<SyncParams> {
 
   public onEnforceRegistrySync?: (() => void) | undefined
 
+  public onPerformSessionRefresh?: (() => Promise<void>) | undefined
+
   public onReuseSucceeded?: (() => void) | undefined
 
   public refreshError?: Error | undefined
@@ -354,7 +356,7 @@ class Harness extends SessionAPI<SyncParams> {
 
   protected async performSessionRefresh(): Promise<void> {
     this.seen.push('performSessionRefresh')
-    await Promise.resolve()
+    await (this.onPerformSessionRefresh?.() ?? Promise.resolve())
     if (this.refreshError !== undefined) {
       throw this.refreshError
     }
@@ -1494,6 +1496,29 @@ describe(SessionAPI, () => {
         harness.callEnsureSession(),
       ])
 
+      expect(harness.seen).toStrictEqual(['performSessionRefresh'])
+    })
+
+    // The refresh's OWN traffic re-enters here: `performSessionRefresh`
+    // signs in, and the enforced post-auth registry sync it triggers
+    // issues requests, each of which calls `ensureSession`. Joining the
+    // in-flight handle there awaits the promise that is waiting on it,
+    // and every request on the client hangs forever with nothing
+    // logged. Without the scope guard this clause never settles.
+    it('does not deadlock when the refresh re-enters it', async () => {
+      using harness = new Harness()
+      // The real chain signs in over the wire before its enforced
+      // registry sync issues a request, so the handle is already
+      // assigned when the nested call lands — it joins rather than
+      // recursing.
+      const reenter = async (): Promise<void> => {
+        await Promise.resolve()
+        await harness.callEnsureSession()
+      }
+      harness.requiresSessionRefresh = true
+      harness.onPerformSessionRefresh = reenter
+
+      await expect(harness.callEnsureSession()).resolves.toBeUndefined()
       expect(harness.seen).toStrictEqual(['performSessionRefresh'])
     })
 
