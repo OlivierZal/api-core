@@ -1204,10 +1204,16 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       !(error instanceof AuthenticationThrottledError)
     ) {
       this.#isCredentialRefused = true
+      // A recorded refusal PARKS the pair: replaying it every window
+      // for the life of the process is the hammering the
+      // disarm-on-refusal verdict exists to prevent, and only the
+      // user's next accepted sign-in lifts the record. No retry.
+      return false
     }
-    // A rejected sign-in has just armed a fresh window. Without this the
-    // gate's own retry would be the only one, and the client would go
-    // dormant again the moment it fires and fails.
+    // A throttle says nothing about the pair, so its window keeps the
+    // retry — the deferred retry can itself be throttled, and without
+    // this the client would go dormant the moment it fires and fails. A
+    // transport blip arms no window, and the deferral is then a no-op.
     this.#deferResumeToBackoffDeadline()
     return false
   }
@@ -1295,14 +1301,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     epoch: number,
     sequence: number,
   ): Promise<void> {
-    const hasClaimantSinceLogOut = this.#hasAcceptedSinceLogOut
-    this.#hasAcceptedSinceLogOut = true
     if (this.#logOutEpoch !== epoch) {
-      if (!hasClaimantSinceLogOut) {
+      // Started BEFORE the sign-out: whatever its own doAuthenticate
+      // wrote is a session the user asked to end, and this flight never
+      // claims — so two of them in the air both clear their material,
+      // the first one's discard excusing nothing for the second.
+      if (!this.#hasAcceptedSinceLogOut) {
         this.#discardRacedSignIn()
       }
       return
     }
+    // Began after the last sign-out and was accepted: a claim, whether
+    // or not a later sign-in supersedes it just below.
+    this.#hasAcceptedSinceLogOut = true
     if (this.#signInSequence !== sequence) {
       return
     }
