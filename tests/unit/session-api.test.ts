@@ -742,12 +742,30 @@ describe(SessionAPI, () => {
     // Without a rearm there the client goes dormant again the moment
     // that one retry fires and fails — so the whole cycle is driven:
     // deferred, fired, rejected, deferred again.
-    it('defers again when the deferred retry is itself rejected', async () => {
+    // A DEFINITIVE refusal parks the pair until the user signs in again:
+    // replaying it every window for the life of the process is exactly
+    // the hammering the disarm-on-refusal verdict exists to prevent.
+    it('parks the pair after a definitive refusal instead of deferring a retry', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      expect(logger.log).not.toHaveBeenCalledWith(
+        expect.stringContaining('Automatic sign-ins are paused'),
+      )
+    })
+
+    // A throttle says nothing about the pair, so its window keeps the
+    // retry — and the deferred retry can itself be throttled again.
+    it('defers again when the deferred retry is itself throttled', async () => {
       const store = withCredentials(createStore())
       const logger = createLogger()
       store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
       using harness = new Harness({ logger, settingManager: store.manager })
-      harness.authError = new AuthenticationError('rejected')
+      harness.authError = new AuthenticationThrottledError('throttled')
 
       await expect(harness.resumeSession()).resolves.toBe(false)
 
@@ -918,6 +936,41 @@ describe(SessionAPI, () => {
         harness.seen.filter((step) => step === 'clearPersistedSession'),
       ).toHaveLength(2)
       expect(store.values.has('username')).toBe(false)
+    })
+
+    // Two sign-ins in the air when the sign-out lands, both answered
+    // after it. Neither claimed the session SINCE the sign-out, so each
+    // must clear what its own doAuthenticate re-established — the flag
+    // the first, losing flight sets must not excuse the second.
+    it('clears every session re-established behind a sign-out when none claimed it since', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({ settingManager: store.manager })
+      // Two gates, released one after the other: the second flight must
+      // be answered AFTER the first one's epilogue has run, or both
+      // session writes land before either epilogue and the first clear
+      // wipes both — the shape a single gate produces, which hides the
+      // gap.
+      const firstGate = Promise.withResolvers<undefined>()
+      const secondGate = Promise.withResolvers<undefined>()
+      harness.authGate = firstGate.promise
+      const first = harness.authenticate({
+        password: 'pwA',
+        username: 'a@example.com',
+      })
+      harness.authGate = secondGate.promise
+      const second = harness.authenticate({
+        password: 'pwB',
+        username: 'b@example.com',
+      })
+      await Promise.resolve()
+      harness.logOut()
+
+      firstGate.resolve(undefined)
+      await first
+      secondGate.resolve(undefined)
+      await second
+
+      expect(harness.isAuthenticated()).toBe(false)
     })
 
     it('lets the later sign-in win even when it is answered second', async () => {

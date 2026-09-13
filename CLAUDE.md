@@ -407,8 +407,12 @@ it — `#settleAcceptedSignIn` — on two independent questions, in this
 order. A SIGN-OUT landed while the flight was in the air:
 `doAuthenticate` has just re-established a session the user asked to
 end, so it is cleared — UNLESS a sign-in has CLAIMED the session since
-that sign-out (`#hasAcceptedSinceLogOut`, reset by every `logOut`), in
-which case clearing would destroy what the claimant established.
+that sign-out (`#hasAcceptedSinceLogOut`, reset by every `logOut` and
+set ONLY by an acceptance that began after it), in which case clearing
+would destroy what the claimant established. A losing flight never
+claims: until 1.6.0 it set the flag on its way to discarding, so two
+flights in the air when the sign-out landed left the second one's
+session standing — pinned by the two-gate clause.
 Checking supersession FIRST instead gets this wrong: a later sign-in
 that starts and is then REFUSED would leave the superseded flight's
 session standing behind an explicit sign-out — pinned by its own clause.
@@ -456,9 +460,15 @@ one line in the log to explain the silence (both apps' only heartbeat is
 this timer: neither issues a periodic read of its own). Since 1.4.0 the
 refusal schedules ONE `DisposableTimeout` at the deadline the gate
 already knows and says so at `log` level. It is idempotent — a window is
-deferred once — and it rearms from `#reportResumeFailure`, because the
-deferred retry can itself be rejected and arm a fresh window. A
-transport blip arms no window, so it schedules nothing. The timer is
+deferred once — and it rearms from `#reportResumeFailure` on a THROTTLE
+only, because a throttled retry can itself be throttled and arm a fresh
+window. A DEFINITIVE refusal never rearms: it records the verdict and
+parks the pair until the user's next accepted sign-in lifts it —
+replaying a dead pair every window for the life of the process is the
+hammering the disarm-on-refusal verdict two paragraphs up exists to
+prevent, and 1.4.0 shipped exactly that until 1.6.0 (a verifier read the
+two paragraphs side by side). A transport blip arms no window, so it
+schedules nothing. The timer is
 cleared by `logOut`, by `#finishLogin` (an accepted sign-in ends the
 pause, so letting the retry fire would spend a round-trip against the
 endpoint the upstream throttles hardest) and by `[Symbol.dispose]`, and
