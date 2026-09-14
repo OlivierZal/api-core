@@ -857,8 +857,11 @@ identically — this repo's since the 2026-08-27 seed — minus a dead
 the grants (publish: attestations / id-token / packages write,
 contents read; docs: contents and packages read, id-token and pages
 write), and the `npm` and `github-pages` environments travel with the
-called jobs. The `setup-node-and-install` composite action stays LOCAL
-on purpose — the called jobs run the CALLER's copy — and every install
+called jobs. The `setup-node-and-install` composite action is gone
+since the configs 6.1.0 adoption — the called jobs reach configs' own
+copy through `$/`, GitHub's self-repository syntax (the repository that defines the
+workflow, at the running commit; GitHub.com only, runner 2.336.0 or
+newer) — and every install
 passes the job `GITHUB_TOKEN` as `npm-token` (the configs dependency
 lives on GitHub Packages, where even reads need auth). `docs.yml` also
 takes a `workflow_dispatch` with a boolean `dry-run`: the build half
