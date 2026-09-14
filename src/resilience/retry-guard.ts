@@ -36,7 +36,7 @@ export class RetryGuard implements Disposable {
   /**
    * Attempt to consume the retry budget.
    * @returns `true` if the caller may proceed with a retry, `false` if the
-   *   budget is exhausted for the current window.
+   * budget is exhausted for the current window.
    */
   public tryConsume(): boolean {
     const now = performance.now()

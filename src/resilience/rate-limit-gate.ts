@@ -113,7 +113,7 @@ export class RateLimitGate {
   /**
    * Builds a gate that opens immediately (no pause is pending).
    * @param fallback - Duration to pause when the server doesn't provide
-   *   a usable `Retry-After` header.
+   * a usable `Retry-After` header.
    */
   public constructor(fallback: RateLimitDurationLike) {
     this.#fallback = Temporal.Duration.from(fallback)
