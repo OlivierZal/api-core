@@ -96,6 +96,21 @@ const respondWith = (status: number): void => {
   mockFetch.mockResolvedValueOnce(mockFetchResponse({ ok: true }, {}, status))
 }
 
+// The sync manager keeps its deadlines on the monotonic clock, which
+// the default fake set leaves alone: the hold clauses fake it too.
+const fakeClocks: Parameters<typeof vi.useFakeTimers>[0] = {
+  toFake: [
+    'setTimeout',
+    'clearTimeout',
+    'setImmediate',
+    'clearImmediate',
+    'setInterval',
+    'clearInterval',
+    'Date',
+    'performance',
+  ],
+}
+
 // A response that lands only when the test says so, to hold a request
 // in flight across a timer deadline.
 const gateFetch = (): PromiseWithResolvers<undefined> => {
@@ -2140,7 +2155,7 @@ describe(SessionAPI, () => {
     // only once the write has landed AND the settle window has run.
     it('parks the tick while a mutation is in flight and for the settle window after it', async () => {
       const harness = new Harness({ syncIntervalMinutes: 1 })
-      vi.useFakeTimers()
+      vi.useFakeTimers(fakeClocks)
       seedSession(harness)
       await harness.fetchMutable()
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
@@ -2167,7 +2182,7 @@ describe(SessionAPI, () => {
     // would defer the heartbeat by itself.
     it('holds nothing for a read', async () => {
       const harness = new Harness({ syncIntervalMinutes: 1 })
-      vi.useFakeTimers()
+      vi.useFakeTimers(fakeClocks)
       seedSession(harness)
       await harness.fetchMutable()
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
@@ -2187,7 +2202,7 @@ describe(SessionAPI, () => {
     // leaves the deadline exactly where it was.
     it('never advances the tick after a mutation', async () => {
       const harness = new Harness({ syncIntervalMinutes: 1 })
-      vi.useFakeTimers()
+      vi.useFakeTimers(fakeClocks)
       seedSession(harness)
       await harness.fetchMutable()
       await vi.advanceTimersByTimeAsync(10 * MS_PER_SECOND)

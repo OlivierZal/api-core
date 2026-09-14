@@ -5,8 +5,21 @@ import { createLogger } from '../../src/testing/index.ts'
 import { MS_PER_MINUTE } from '../../src/time-units.ts'
 
 describe(SyncManager, () => {
+  // The deadlines live on the monotonic clock, so it is faked with the
+  // timers here.
   beforeEach(() => {
-    vi.useFakeTimers()
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'Date',
+        'performance',
+      ],
+    })
   })
 
   afterEach(() => {

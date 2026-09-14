@@ -25,6 +25,9 @@ const JSON_CONTENT_TYPE = 'application/json'
 export interface HttpClientConfig {
   readonly baseURL: string
   readonly timeout: number
+  readonly dispatcher?: FetchDispatcher
+  readonly headers?: Record<string, string>
+  readonly redaction?: Redaction
   /**
    * The message a non-2xx response is thrown with. The core knows only
    * the status; a dialect whose wire explains its refusals in the body
@@ -32,11 +35,7 @@ export interface HttpClientConfig {
    * error with an `error_message`), keeping the class, the snapshot and
    * the redaction the core's.
    */
-  readonly describeFailure?:
-    ((status: number, data: unknown) => string) | undefined
-  readonly dispatcher?: FetchDispatcher
-  readonly headers?: Record<string, string>
-  readonly redaction?: Redaction
+  readonly describeFailure?: (status: number, data: unknown) => string
 }
 
 const describeStatus = (status: number): string =>
@@ -257,7 +256,9 @@ export class HttpClient {
     const parsed = await parseBody(response)
     const responseHeaders = readHeaders(response.headers)
     if (!response.ok) {
-      throw new HttpError(this.#describeFailure(response.status, parsed), {
+      const { cause, message } = this.#describe(response.status, parsed)
+      throw new HttpError(message, {
+        cause,
         config: {
           data: config.data,
           headers: { ...this.#defaultHeaders, ...config.headers },
@@ -315,5 +316,20 @@ export class HttpClient {
     this.#applySignal(init, signal)
     this.#applyDispatcher(init)
     return init
+  }
+
+  // The dialect's reader is fenced: a body it did not expect must not
+  // turn the non-2xx into a plain error that escapes the HttpError
+  // contract downstream layers rely on — the status line stands in and
+  // the reader's own failure rides `cause`.
+  #describe(
+    status: number,
+    data: unknown,
+  ): { message: string; cause?: unknown } {
+    try {
+      return { message: this.#describeFailure(status, data) }
+    } catch (error) {
+      return { cause: error, message: describeStatus(status) }
+    }
   }
 }

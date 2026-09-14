@@ -15,6 +15,9 @@ const toIntervalMs = (minutes: number | false): number =>
  * read back stale by a refresh that overlaps it, and one just landed
  * needs the upstream a moment to settle before a re-read means
  * anything. Holds only DELAY the planned tick — they never advance it.
+ * Deadlines are kept on the monotonic clock (`performance.now()`), as
+ * every window in this package is: a system-time jump must neither
+ * stretch nor collapse the cadence.
  */
 export class SyncManager implements Disposable {
   #deadline: number | null = null
@@ -48,7 +51,11 @@ export class SyncManager implements Disposable {
   }
 
   /**
-   * Cancels any pending auto-sync tick, planned or held.
+   * Cancels any pending auto-sync tick, planned or held. The quiet
+   * window survives it on purpose: it is a fact about the upstream
+   * (a write is still settling), not about the schedule, so a cadence
+   * change or a cycle that clears and re-plans still lands its next
+   * tick after the window.
    */
   public clear(): void {
     this.#deadline = null
@@ -72,7 +79,7 @@ export class SyncManager implements Disposable {
     if (this.#interval <= 0) {
       return
     }
-    this.#deadline = Date.now() + this.#interval
+    this.#deadline = performance.now() + this.#interval
     this.#arm()
   }
 
@@ -85,7 +92,7 @@ export class SyncManager implements Disposable {
   public release(quietMs: number): void {
     this.#holds = Math.max(0, this.#holds - 1)
     if (this.#holds === 0) {
-      this.#quietUntil = Date.now() + quietMs
+      this.#quietUntil = performance.now() + quietMs
       this.#arm()
     }
   }
@@ -111,7 +118,7 @@ export class SyncManager implements Disposable {
     if (this.#holds > 0 || this.#deadline === null) {
       return
     }
-    const now = Date.now()
+    const now = performance.now()
     const delayMs = Math.max(this.#deadline - now, this.#quietUntil - now, 0)
     this.#timeout.schedule(() => {
       this.#deadline = null
