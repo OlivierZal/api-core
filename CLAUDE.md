@@ -105,6 +105,14 @@ SDKs re-export it exactly like `RegistrySyncError`.
   while the SDK's bound shell masked it — caught by the heatzy
   adoption agent against the packed tarball, pinned since by
   `session-api.test.ts`'s dispatch-log redaction clauses.
+- `HttpClientConfig.describeFailure` (1.7.0) is the one seam a dialect
+  has into the message of a thrown `HttpError`: the core knows only the
+  status ("Request failed with status code 400"), a wire that explains
+  its refusals in the body hands a reader that surfaces the reason —
+  heatzy-api's Gizwits `detail_message`/`error_message`, which its June
+  code carried and the extraction had dropped. The class, the snapshot
+  and the redaction stay the core's; the reader sees the PARSED body
+  before redaction, so it must never copy that body into the message.
 - The APICall* shells serialize `url` through `redactUrl`, never
   `redactValue`: the deep walk reads a one-pair query as a single
   `path?key` = value entry whose key names no secret, so an inline
@@ -486,6 +494,21 @@ would fire the retry immediately, find the gate still shut and
 re-schedule — a hot loop. Bounding it re-checks an absurd deadline at
 the longest horizon the code can legitimately arm, the same principle
 that already reads a non-numeric deadline as no pause at all.
+
+A mutation parks that timer. `request()` opens a `SyncManager` hold
+around every non-GET call and releases it with a 3-second settle
+window (`SYNC_SETTLE_MS`): a refresh that overlaps a write reads the
+pre-write state back into the registry, and one that follows it too
+closely reads a device that has not applied it yet — a Classic unit
+keeps only the flagged fields a few seconds after the POST, a Gizwits
+device answers its control over MQTT. Holds nest (one per mutation in
+flight) and only ever DELAY the planned tick — the deadline stays
+where `planNext()` put it unless the settle window reaches past it —
+so a write costs no extra refresh and a 5-minute cadence never becomes
+"3 seconds after every write". Reads hold nothing: the heartbeat's own
+traffic must not defer itself. Added in 1.7.0 for heatzy-api's return
+to its June cadence (a registry refresh every five seconds, where an
+overlap with a write is the common case, not the edge).
 
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls

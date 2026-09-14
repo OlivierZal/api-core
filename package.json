@@ -1,6 +1,6 @@
 {
   "name": "@olivierzal/api-core",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Shared API-client core for the OlivierZal SDKs: the session lifecycle and request pipeline (SessionAPI), the redaction-seated HTTP client, observability shells, resilience primitives — mechanism here, protocol vocabulary in each consumer",
   "keywords": [
     "http",
