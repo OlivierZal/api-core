@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-// The value surface of the root barrel. vitest's module runner lists a
-// namespace in declaration order, so both sides are sorted the same way.
+// The value surface of the root barrel, in the order `byName` yields —
+// the locale is pinned so the expectation does not follow the runtime's
+// default collation.
+const byName = (first: string, second: string): number =>
+  first.localeCompare(second, 'en')
+
 const EXPECTED = [
   'APICallLogData',
   'APICallRequestData',
@@ -58,8 +62,6 @@ describe('public surface', () => {
   it('exports exactly the pinned value names from the root barrel', async () => {
     const api = await import('../../src/index.ts')
 
-    expect(
-      Object.keys(api).toSorted((first, second) => first.localeCompare(second)),
-    ).toStrictEqual(EXPECTED)
+    expect(Object.keys(api).toSorted(byName)).toStrictEqual(EXPECTED)
   })
 })
