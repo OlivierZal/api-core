@@ -86,11 +86,15 @@ export class SyncManager implements Disposable {
   /**
    * Closes a hold. When it was the last one, the parked tick is armed
    * again — no earlier than its own deadline, and no earlier than the
-   * quiet period from now.
+   * quiet period from now. A release with no hold open is ignored: it
+   * closes nothing, so it settles nothing either.
    * @param quietMs - How long the upstream needs to settle the mutation.
    */
   public release(quietMs: number): void {
-    this.#holds = Math.max(0, this.#holds - 1)
+    if (this.#holds === 0) {
+      return
+    }
+    this.#holds -= 1
     if (this.#holds === 0) {
       this.#quietUntil = performance.now() + quietMs
       this.#arm()
