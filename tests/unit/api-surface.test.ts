@@ -1,105 +1,71 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  APICallLogData,
-  APICallRequestData,
-  APICallResponseData,
-  APIError,
-  AuthenticationError,
-  AuthenticationThrottledError,
-  AuthRetryPolicy,
-  BASE_SENSITIVE_KEYS,
-  baseRedaction,
-  CompositePolicy,
-  createAPICallErrorData,
-  createRedaction,
-  DEFAULT_TRANSIENT_RETRY_OPTIONS,
-  DisposableTimeout,
-  fireAndForget,
-  formatDurationHuman,
-  HttpClient,
-  HttpError,
-  HttpStatus,
-  Intl,
-  isAPIError,
-  isHttpError,
-  isSessionExpired,
-  isTransientServerError,
-  LifecycleEmitter,
-  MS_PER_DAY,
-  MS_PER_MINUTE,
-  MS_PER_SECOND,
-  RateLimitError,
-  RateLimitGate,
-  RateLimitPolicy,
-  REDACTED,
-  RegistrySyncError,
-  RetryGuard,
-  readHeaders,
-  SESSION_REFRESH_AHEAD_MS,
-  SessionAPI,
-  SyncManager,
-  setting,
-  syncDevices,
-  Temporal,
-  TransientRetryPolicy,
-  ValidationError,
-  withRetryBackoff,
-} from '../../src/index.ts'
+// The value surface of the root barrel, in code-unit order: ASCII
+// identifiers, so no collation is involved and the list never moves
+// with an ICU upgrade.
+const byCodeUnit = (first: string, second: string): number => {
+  if (first === second) {
+    return 0
+  }
+  return first < second ? -1 : 1
+}
+
+const EXPECTED = [
+  'APICallLogData',
+  'APICallRequestData',
+  'APICallResponseData',
+  'APIError',
+  'AuthRetryPolicy',
+  'AuthenticationError',
+  'AuthenticationThrottledError',
+  'BASE_SENSITIVE_KEYS',
+  'CompositePolicy',
+  'DEFAULT_TRANSIENT_RETRY_OPTIONS',
+  'DisposableTimeout',
+  'HttpClient',
+  'HttpError',
+  'HttpStatus',
+  'Intl',
+  'LifecycleEmitter',
+  'MS_PER_DAY',
+  'MS_PER_MINUTE',
+  'MS_PER_SECOND',
+  'REDACTED',
+  'RateLimitError',
+  'RateLimitGate',
+  'RateLimitPolicy',
+  'RegistrySyncError',
+  'RetryGuard',
+  'SESSION_REFRESH_AHEAD_MS',
+  'SessionAPI',
+  'SyncManager',
+  'Temporal',
+  'TransientRetryPolicy',
+  'ValidationError',
+  'baseRedaction',
+  'createAPICallErrorData',
+  'createRedaction',
+  'fireAndForget',
+  'formatDurationHuman',
+  'isAPIError',
+  'isHttpError',
+  'isSessionExpired',
+  'isTransientServerError',
+  'readHeaders',
+  'setting',
+  'syncDevices',
+  'withRetryBackoff',
+]
 
 // Imports the ROOT barrel (the other suites reach modules directly), so
 // the barrel executes under coverage and the published surface is
-// pinned: an accidental drop from the export list fails here before a
-// consumer's adoption train finds the hole.
-const surface: Record<string, unknown> = {
-  APICallLogData,
-  APICallRequestData,
-  APICallResponseData,
-  APIError,
-  AuthenticationError,
-  AuthenticationThrottledError,
-  AuthRetryPolicy,
-  BASE_SENSITIVE_KEYS,
-  baseRedaction,
-  CompositePolicy,
-  createAPICallErrorData,
-  createRedaction,
-  DEFAULT_TRANSIENT_RETRY_OPTIONS,
-  DisposableTimeout,
-  fireAndForget,
-  formatDurationHuman,
-  HttpClient,
-  HttpError,
-  HttpStatus,
-  Intl,
-  isAPIError,
-  isHttpError,
-  isSessionExpired,
-  isTransientServerError,
-  LifecycleEmitter,
-  MS_PER_DAY,
-  MS_PER_MINUTE,
-  MS_PER_SECOND,
-  RateLimitError,
-  RateLimitGate,
-  RateLimitPolicy,
-  REDACTED,
-  RegistrySyncError,
-  RetryGuard,
-  readHeaders,
-  SESSION_REFRESH_AHEAD_MS,
-  SessionAPI,
-  SyncManager,
-  setting,
-  syncDevices,
-  Temporal,
-  TransientRetryPolicy,
-  ValidationError,
-  withRetryBackoff,
-}
+// pinned both ways: a drop AND an addition of a value export fail here
+// before a consumer's adoption train finds the hole. An intentional
+// barrel change edits this list and re-counts the CLAUDE.md ledger.
+describe('public surface', () => {
+  it('exports exactly the pinned value names from the root barrel', async () => {
+    const api = await import('../../src/index.ts')
 
-describe.concurrent('public surface', () => {
-  it.each(Object.keys(surface))('exports %s from the root barrel', (name) => {
-    expect(surface[name]).toBeDefined()
+    expect(Object.keys(api).toSorted(byCodeUnit)).toStrictEqual(EXPECTED)
   })
 })
