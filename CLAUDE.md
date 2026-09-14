@@ -69,7 +69,13 @@ zones), the mechanism comes here and the data becomes a constructor or
 config parameter; if they differed structurally for protocol reasons,
 the module stays in its SDK. `parseOrThrow` stayed out on a second bar —
 its signature is `z.ZodType<T>`, so it would couple this package's
-release cadence to zod's for a 14-line win. `ValidationError` was
+release cadence to zod's for a 14-line win. `isKeyOf`, `clampToRange`
+and `omitUndefined` were weighed on 2026-09-14 and declined on both
+prongs: `omitUndefined` is typed differently per SDK — the identity
+overload over melcloud-api's `HomeDeviceValues` union, an
+undefined-stripping mapped type over heatzy-api's
+`UndefinedTolerant<Attributes>` — and the trio sits under the line that
+kept `parseOrThrow` out. `ValidationError` was
 refused with it until 1.3.0 on a reason that never applied to the
 class: it imports nothing from zod (the validator's error rides `cause`
 as `unknown`), and the two SDKs carried it as a byte-identical twin. It
@@ -722,8 +728,9 @@ They STAY exported: an unconstructed export costs a consumer nothing, a
 host composing its own client outside `SessionAPI` may want exactly
 these pieces, and trimming them would be a major for nothing.
 `api-surface.test.ts` pins the WHOLE 44-name value surface, not this
-subset — an accidental drop of any value export fails there — and no
-test pins the type exports: the eighteen imported ones are held by the
+subset — one sorted list against the barrel's keys, so a drop or an
+addition of any value export fails there — and no test pins the type
+exports: the eighteen imported ones are held by the
 consumers' adoption typechecks, the seven above by this ledger alone.
 This verdict exists so a future audit reads a decision here instead of
 re-deriving one; when the barrel changes, re-count it — never trim it.
