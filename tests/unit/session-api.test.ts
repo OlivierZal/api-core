@@ -31,7 +31,7 @@ import {
   mockFetchResponse,
   mockTemporalNowInstant,
 } from '../../src/testing/index.ts'
-import { MS_PER_MINUTE } from '../../src/time-units.ts'
+import { MS_PER_MINUTE, MS_PER_SECOND } from '../../src/time-units.ts'
 
 // The throttle cap `session-api.ts` bounds a deferred retry by.
 const THROTTLE_CAP_MINUTES = 120
@@ -94,6 +94,17 @@ vi.stubGlobal('fetch', mockFetch)
 
 const respondWith = (status: number): void => {
   mockFetch.mockResolvedValueOnce(mockFetchResponse({ ok: true }, {}, status))
+}
+
+// A response that lands only when the test says so, to hold a request
+// in flight across a timer deadline.
+const gateFetch = (): PromiseWithResolvers<undefined> => {
+  const gate = Promise.withResolvers<undefined>()
+  mockFetch.mockImplementationOnce(async () => {
+    await gate.promise
+    return mockFetchResponse({ ok: true }, {}, HTTP_OK)
+  })
+  return gate
 }
 
 const createStore = (hasUnset = true): Store => {
@@ -2116,6 +2127,81 @@ describe(SessionAPI, () => {
       )
 
       expect(harness.isRateLimited).toBe(false)
+    })
+  })
+
+  describe('auto-sync hold', () => {
+    // The settle window `session-api.ts` parks a landed mutation for.
+    const SETTLE_MS = 3 * MS_PER_SECOND
+
+    // A refresh overlapping a write reads the pre-write state back into
+    // the registry, and one following it too closely reads a device
+    // that has not applied it yet: the tick due during the write fires
+    // only once the write has landed AND the settle window has run.
+    it('parks the tick while a mutation is in flight and for the settle window after it', async () => {
+      const harness = new Harness({ syncIntervalMinutes: 1 })
+      vi.useFakeTimers()
+      seedSession(harness)
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
+      const gate = gateFetch()
+      const write = harness.callRequest('post', '/devices')
+      await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
+
+      expect(harness.seen).not.toContain('autoSync')
+
+      gate.resolve(undefined)
+      await write
+      await vi.advanceTimersByTimeAsync(SETTLE_MS - 1)
+
+      expect(harness.seen).not.toContain('autoSync')
+
+      await vi.advanceTimersByTimeAsync(1)
+      vi.useRealTimers()
+      harness[Symbol.dispose]()
+
+      expect(harness.seen).toContain('autoSync')
+    })
+
+    // The heartbeat's own traffic is reads: a read holding the tick
+    // would defer the heartbeat by itself.
+    it('holds nothing for a read', async () => {
+      const harness = new Harness({ syncIntervalMinutes: 1 })
+      vi.useFakeTimers()
+      seedSession(harness)
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
+      const gate = gateFetch()
+      const read = harness.callRequest('get', '/devices')
+      await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
+
+      expect(harness.seen).toContain('autoSync')
+
+      gate.resolve(undefined)
+      await read
+      vi.useRealTimers()
+      harness[Symbol.dispose]()
+    })
+
+    // A hold delays; it never advances. A write early in the interval
+    // leaves the deadline exactly where it was.
+    it('never advances the tick after a mutation', async () => {
+      const harness = new Harness({ syncIntervalMinutes: 1 })
+      vi.useFakeTimers()
+      seedSession(harness)
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(10 * MS_PER_SECOND)
+      respondWith(HTTP_OK)
+      await harness.callRequest('post', '/devices')
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - 10 * MS_PER_SECOND - 1)
+
+      expect(harness.seen).not.toContain('autoSync')
+
+      await vi.advanceTimersByTimeAsync(1)
+      vi.useRealTimers()
+      harness[Symbol.dispose]()
+
+      expect(harness.seen).toContain('autoSync')
     })
   })
 

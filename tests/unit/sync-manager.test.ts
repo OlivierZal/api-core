@@ -163,4 +163,92 @@ describe(SyncManager, () => {
 
     expect(syncFunction).toHaveBeenCalledTimes(1)
   })
+
+  // A mutation in flight would be read back stale by a refresh that
+  // overlaps it, and one just landed needs the upstream a moment to
+  // settle: holds park the planned tick and never advance it.
+  it('hold() parks the planned tick until the last release()', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.planNext()
+    manager.hold()
+    manager.hold()
+    await vi.advanceTimersByTimeAsync(2 * MS_PER_MINUTE)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+
+    manager.release(0)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+
+    manager.release(0)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(syncFunction).toHaveBeenCalledTimes(1)
+  })
+
+  it('release() waits the quiet window out when the deadline has passed', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.planNext()
+    manager.hold()
+    await vi.advanceTimersByTimeAsync(2 * MS_PER_MINUTE)
+    manager.release(3000)
+    await vi.advanceTimersByTimeAsync(2999)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(syncFunction).toHaveBeenCalledTimes(1)
+  })
+
+  it('release() keeps the deadline when it lies beyond the quiet window', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.planNext()
+    await vi.advanceTimersByTimeAsync(10_000)
+    manager.hold()
+    manager.release(3000)
+    await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - 10_000 - 1)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(syncFunction).toHaveBeenCalledTimes(1)
+  })
+
+  it('release() arms nothing when no tick was planned', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.hold()
+    manager.release(0)
+    await vi.advanceTimersByTimeAsync(10 * MS_PER_MINUTE)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+  })
+
+  it('clear() forgets a held tick', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.planNext()
+    manager.hold()
+    manager.clear()
+    manager.release(0)
+    await vi.advanceTimersByTimeAsync(10 * MS_PER_MINUTE)
+
+    expect(syncFunction).not.toHaveBeenCalled()
+  })
 })

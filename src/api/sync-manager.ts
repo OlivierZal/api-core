@@ -9,11 +9,23 @@ const toIntervalMs = (minutes: number | false): number =>
 /**
  * Manages periodic auto-sync with a configurable interval.
  * Drives the consuming clients' periodic registry refresh.
+ *
+ * A tick never fires while a hold is open, and never before the quiet
+ * period the last release asked for: a mutation in flight would be
+ * read back stale by a refresh that overlaps it, and one just landed
+ * needs the upstream a moment to settle before a re-read means
+ * anything. Holds only DELAY the planned tick — they never advance it.
  */
 export class SyncManager implements Disposable {
+  #deadline: number | null = null
+
+  #holds = 0
+
   #interval: number
 
   readonly #logger: Logger
+
+  #quietUntil = 0
 
   readonly #syncFunction: () => Promise<unknown>
 
@@ -36,9 +48,19 @@ export class SyncManager implements Disposable {
   }
 
   /**
-   * Cancels any pending auto-sync tick.
+   * Cancels any pending auto-sync tick, planned or held.
    */
   public clear(): void {
+    this.#deadline = null
+    this.#timeout.clear()
+  }
+
+  /**
+   * Opens a hold: the planned tick is parked until every hold is
+   * released. Holds nest, one per mutation in flight.
+   */
+  public hold(): void {
+    this.#holds += 1
     this.#timeout.clear()
   }
 
@@ -47,10 +69,24 @@ export class SyncManager implements Disposable {
    * fire-and-forget so a rejection is logged, never propagated.
    */
   public planNext(): void {
-    if (this.#interval > 0) {
-      this.#timeout.schedule(() => {
-        fireAndForget(this.#syncFunction(), this.#logger, 'Auto-sync failed:')
-      }, this.#interval)
+    if (this.#interval <= 0) {
+      return
+    }
+    this.#deadline = Date.now() + this.#interval
+    this.#arm()
+  }
+
+  /**
+   * Closes a hold. When it was the last one, the parked tick is armed
+   * again — no earlier than its own deadline, and no earlier than the
+   * quiet period from now.
+   * @param quietMs - How long the upstream needs to settle the mutation.
+   */
+  public release(quietMs: number): void {
+    this.#holds = Math.max(0, this.#holds - 1)
+    if (this.#holds === 0) {
+      this.#quietUntil = Date.now() + quietMs
+      this.#arm()
     }
   }
 
@@ -69,5 +105,17 @@ export class SyncManager implements Disposable {
     this.#interval = toIntervalMs(minutes)
     this.clear()
     this.planNext()
+  }
+
+  #arm(): void {
+    if (this.#holds > 0 || this.#deadline === null) {
+      return
+    }
+    const now = Date.now()
+    const delayMs = Math.max(this.#deadline - now, this.#quietUntil - now, 0)
+    this.#timeout.schedule(() => {
+      this.#deadline = null
+      fireAndForget(this.#syncFunction(), this.#logger, 'Auto-sync failed:')
+    }, delayMs)
   }
 }

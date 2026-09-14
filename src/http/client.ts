@@ -25,10 +25,22 @@ const JSON_CONTENT_TYPE = 'application/json'
 export interface HttpClientConfig {
   readonly baseURL: string
   readonly timeout: number
+  /**
+   * The message a non-2xx response is thrown with. The core knows only
+   * the status; a dialect whose wire explains its refusals in the body
+   * hands the reader that surfaces the reason (Gizwits answers every
+   * error with an `error_message`), keeping the class, the snapshot and
+   * the redaction the core's.
+   */
+  readonly describeFailure?:
+    ((status: number, data: unknown) => string) | undefined
   readonly dispatcher?: FetchDispatcher
   readonly headers?: Record<string, string>
   readonly redaction?: Redaction
 }
+
+const describeStatus = (status: number): string =>
+  `Request failed with status code ${String(status)}`
 
 /**
  * Configuration accepted by {@link HttpClient.request}: body (`data`),
@@ -194,6 +206,8 @@ export class HttpClient {
 
   readonly #defaultHeaders: Record<string, string>
 
+  readonly #describeFailure: (status: number, data: unknown) => string
+
   readonly #dispatcher?: FetchDispatcher | undefined
 
   readonly #redaction: Redaction
@@ -207,10 +221,12 @@ export class HttpClient {
    * @param root0.dispatcher - Optional undici dispatcher.
    * @param root0.headers - Default headers merged into every request.
    * @param root0.redaction - Redaction engine applied to thrown {@link HttpError} snapshots; defaults to the base vocabulary.
+   * @param root0.describeFailure - Reader of a non-2xx response's message; defaults to the status alone.
    * @param root0.timeout - Per-request timeout in milliseconds (`0` disables it).
    */
   public constructor({
     baseURL,
+    describeFailure = describeStatus,
     dispatcher,
     headers,
     redaction = baseRedaction,
@@ -221,6 +237,7 @@ export class HttpClient {
     this.#dispatcher = dispatcher
     this.#defaultHeaders = { ...headers }
     this.#redaction = redaction
+    this.#describeFailure = describeFailure
   }
 
   /**
@@ -240,24 +257,21 @@ export class HttpClient {
     const parsed = await parseBody(response)
     const responseHeaders = readHeaders(response.headers)
     if (!response.ok) {
-      throw new HttpError(
-        `Request failed with status code ${String(response.status)}`,
-        {
-          config: {
-            data: config.data,
-            headers: { ...this.#defaultHeaders, ...config.headers },
-            method: config.method ?? 'GET',
-            params: config.params,
-            url: config.url,
-          },
-          redaction: this.#redaction,
-          response: {
-            data: parsed,
-            headers: responseHeaders,
-            status: response.status,
-          },
+      throw new HttpError(this.#describeFailure(response.status, parsed), {
+        config: {
+          data: config.data,
+          headers: { ...this.#defaultHeaders, ...config.headers },
+          method: config.method ?? 'GET',
+          params: config.params,
+          url: config.url,
         },
-      )
+        redaction: this.#redaction,
+        response: {
+          data: parsed,
+          headers: responseHeaders,
+          status: response.status,
+        },
+      })
     }
     return {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- parsed body is structurally `unknown`; caller provides the narrow `T`

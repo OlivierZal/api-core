@@ -592,4 +592,25 @@ describe(HttpClient, () => {
 
     expect(responseHeaders['set-cookie']).toStrictEqual(['a=1', 'b=2'])
   })
+
+  // The core knows only the status; a dialect whose wire explains its
+  // refusals in the body describes the failure itself, keeping the
+  // class, the snapshot and the redaction the core's.
+  it('lets a dialect describe a failure from the response body', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockFetchResponse({ reason: 'token invalid' }, {}, 400),
+    )
+    const client = new HttpClient({
+      baseURL: 'https://api.test',
+      timeout: 0,
+      describeFailure: (status, data): string => {
+        const body: { reason: string } = cast(data)
+        return `${String(status)}: ${body.reason}`
+      },
+    })
+
+    await expect(client.request({ url: '/devices' })).rejects.toThrow(
+      '400: token invalid',
+    )
+  })
 })

@@ -45,6 +45,15 @@ import { SyncManager } from './sync-manager.ts'
 // Cool-down between consecutive auth-retry consumptions on the same
 // RetryGuard. Deliberately not configurable: adjusting it is more
 // likely to mask bugs than reflect a real product need.
+/**
+ * How long a landed mutation parks the auto-sync tick: the upstream
+ * applies a write asynchronously (a Classic unit keeps only the flagged
+ * fields a few seconds later; a Gizwits device answers its control over
+ * MQTT), so a refresh inside this window reads the device before the
+ * write, and would carry the stale value into the registry.
+ */
+const SYNC_SETTLE_MS = 3000
+
 const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 
 // Automatic re-login backoff after a REJECTED sign-in: an upstream that
@@ -837,7 +846,20 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         throw error
       }
     }
-    return this.#runWithEvents(context, async () => policy.run(attempt))
+    // A mutation parks the auto-sync tick for its duration and for the
+    // settle window after it: a refresh overlapping the write reads the
+    // pre-write state back into the registry, and one that follows it
+    // too closely reads a device that has not applied it yet. Reads
+    // hold nothing — the heartbeat's own traffic must not defer itself.
+    if (context.method === 'GET') {
+      return this.#runWithEvents(context, async () => policy.run(attempt))
+    }
+    this.#syncManager.hold()
+    try {
+      return await this.#runWithEvents(context, async () => policy.run(attempt))
+    } finally {
+      this.#syncManager.release(SYNC_SETTLE_MS)
+    }
   }
 
   /**
