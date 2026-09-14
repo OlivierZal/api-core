@@ -264,4 +264,17 @@ describe(SyncManager, () => {
 
     expect(syncFunction).not.toHaveBeenCalled()
   })
+
+  it('ignores a release with no hold open, quiet window included', async () => {
+    const syncFunction = vi.fn<() => Promise<void>>().mockResolvedValue()
+    const logger = createLogger()
+    using manager = new SyncManager(syncFunction, logger, 1)
+
+    manager.planNext()
+    await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - 1)
+    manager.release(10 * MS_PER_MINUTE)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(syncFunction).toHaveBeenCalledTimes(1)
+  })
 })
