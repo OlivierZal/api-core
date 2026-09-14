@@ -206,7 +206,7 @@ const serializeBody = (body: unknown): string => {
  * `.headers.get()`. A null-body status (204, 205, 304) gets the `null`
  * body the `Response` constructor insists on.
  * @param body - Response body; objects are JSON-serialised (and default
- *   the `content-type` to JSON), strings pass through.
+ * the `content-type` to JSON), strings pass through.
  * @param headers - Response headers; `set-cookie` may be an array.
  * @param status - Response status (defaults to 200).
  * @returns A `Response` sufficient for the transport tests.
