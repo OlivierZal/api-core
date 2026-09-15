@@ -143,10 +143,11 @@ export const createLogger = (): Logger => ({
 
 /**
  * Routes `Temporal.Now.instant()` through the mocked `Date.now()`.
- * `temporal-polyfill` v1 delegates to the native `Temporal` when the
- * runtime ships one (Node 26+), and native `Temporal.Now` reads the
- * real clock directly, bypassing `vi.setSystemTime` (which only patches
- * `Date`) — so a test that freezes or advances time must also route the
+ * `temporal-polyfill` v1 captures the native `Temporal` at import time
+ * when the runtime ships one (Node 26+); vitest 5's fake timers swap
+ * `globalThis.Temporal` for a clock-backed copy, which that captured
+ * reference never sees, so native `Temporal.Now` keeps reading the real
+ * clock — a test that freezes or advances time must also route the
  * instant through the mocked clock. Under the polyfilled implementation
  * the spy is a behavioral no-op. Restore it with
  * `vi.mocked(Temporal.Now.instant).mockRestore()` next to
