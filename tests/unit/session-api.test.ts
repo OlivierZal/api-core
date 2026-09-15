@@ -96,8 +96,10 @@ const respondWith = (status: number): void => {
   mockFetch.mockResolvedValueOnce(mockFetchResponse({ ok: true }, {}, status))
 }
 
-// The sync manager keeps its deadlines on the monotonic clock, which
-// the default fake set leaves alone: the hold clauses fake it too.
+// An explicit list NARROWS the default fake set (which already fakes
+// `performance`, `hrtime`, and `Temporal` where the runtime has one) to
+// the clocks the hold clauses read: the timers, `Date`, and the
+// monotonic `performance` the sync manager keeps its deadlines on.
 const fakeClocks: Parameters<typeof vi.useFakeTimers>[0] = {
   toFake: [
     'setTimeout',

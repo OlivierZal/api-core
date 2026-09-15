@@ -5,8 +5,10 @@ import { createLogger } from '../../src/testing/index.ts'
 import { MS_PER_MINUTE } from '../../src/time-units.ts'
 
 describe(SyncManager, () => {
-  // The deadlines live on the monotonic clock, so it is faked with the
-  // timers here.
+  // The deadlines live on the monotonic clock: the list names it with
+  // the timers and `Date`, narrowing the default fake set (which fakes
+  // more — `Temporal` included where the runtime has one) to what the
+  // manager reads.
   beforeEach(() => {
     vi.useFakeTimers({
       toFake: [
