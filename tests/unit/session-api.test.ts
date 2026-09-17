@@ -2081,9 +2081,8 @@ describe(SessionAPI, () => {
       expect(logger.error).not.toHaveBeenCalled()
     })
 
-    // A snapshot-less HttpError (a transport that reports no config)
-    // still opens a streak: the subject falls back to the empty method
-    // and url rather than going unreported.
+    // The line is written from the error alone: the streak decides
+    // WHETHER `logError` is called, never what it can serialize.
     it('logs an HTTP failure whose snapshot carries no request', () => {
       const logger = createLogger()
       using harness = new Harness({ logger })

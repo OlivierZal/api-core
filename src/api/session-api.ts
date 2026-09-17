@@ -80,13 +80,8 @@ const reason = (error: unknown): string => {
     : `a thrown ${typeof error}`
 }
 
-// The error's snapshot carries the method as the caller spelled it
-// (`post`), the pipeline context carries it uppercased: one subject
-// must not become two.
-const requestSubject = (
-  method: string | undefined,
-  url: string | undefined,
-): string => `${(method ?? '').toUpperCase()} ${url ?? ''}`
+const requestSubject = (method: string, url: string): string =>
+  `${method} ${url}`
 
 const pluralize = (count: number, noun: string): string =>
   `${String(count)} ${noun}${count === 1 ? '' : 's'}`
@@ -861,21 +856,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return this.isAuthenticated() && !this.#isCredentialRefused
   }
 
-  // One line per FAILURE, not per attempt: a host that polls — every
-  // five seconds on heatzy's registry cycle — turns an endpoint that
-  // keeps refusing into tens of thousands of entries a day, exactly
-  // when the diagnostic report a user pastes into an issue must stay
-  // readable. The line is written when the streak opens, when its
-  // reason changes and every FAILURE_REMINDER_INTERVAL_MS after that;
-  // `#closeRequestStreak` announces the recovery.
   protected logError(error: unknown): void {
-    if (
-      isHttpError(error) &&
-      this.#failureStreaks.shouldReport(
-        requestSubject(error.config?.method, error.config?.url),
-        `${String(error.response.status)}: ${error.message}`,
-      )
-    ) {
+    if (isHttpError(error)) {
       this.logger.error(String(createAPICallErrorData(error, this.#redaction)))
     }
   }
@@ -898,7 +880,18 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         this.#closeRequestStreak(context.method, url)
         return response
       } catch (error) {
-        this.logError(error)
+        // One line per FAILURE, not per attempt: a host that polls —
+        // every five seconds on heatzy's registry cycle — turns an
+        // endpoint that keeps refusing into tens of thousands of
+        // entries a day, exactly when the diagnostic report a user
+        // pastes into an issue must stay readable. Both ends of the
+        // streak are keyed HERE, off the request context through this
+        // instance's own redaction, never off the error's snapshot,
+        // which the transport redacted with whatever engine it was
+        // built with.
+        if (this.#shouldReportRequestFailure(context.method, url, error)) {
+          this.logError(error)
+        }
         throw error
       }
     }
@@ -1124,11 +1117,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   // A subject that answers again closes its streak with ONE line, so a
   // reader sees where the episode ended without diffing timestamps.
-  // The subject is built on the REDACTED url on both sides: `HttpError`
-  // redacts its snapshot in its constructor, so a url carrying a
-  // credential in its query opens the streak under its redacted
-  // spelling — closing it with the raw one would leave the streak
-  // standing and hold back the failures that follow.
+  // The subject rides the REDACTED url, so a credential in a query
+  // string never reaches the log through this key either.
   #closeRequestStreak(method: string, url: string): void {
     const redactedUrl = this.#redaction.redactUrl(url)
     const failures = this.#failureStreaks.close(
@@ -1464,5 +1454,20 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       // enforced post-auth registry sync.
       this.#emitAuthenticationLostOnce()
     }
+  }
+
+  // The same subject the recovery closes, built from the request
+  // context rather than from the error's own snapshot: the transport
+  // redacts that snapshot with whatever engine it was built with, and
+  // two spellings of one url would open a streak that never closes.
+  #shouldReportRequestFailure(
+    method: string,
+    url: string,
+    error: unknown,
+  ): boolean {
+    return this.#failureStreaks.shouldReport(
+      requestSubject(method, this.#redaction.redactUrl(url)),
+      reason(error),
+    )
   }
 }
