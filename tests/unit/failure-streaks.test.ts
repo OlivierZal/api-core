@@ -77,6 +77,15 @@ describe(FailureStreaks, () => {
     expect(streaks.close('GET /devices')).toBe(2)
   })
 
+  it('counts every reason of one episode when it closes', () => {
+    const streaks = new FailureStreaks()
+    streaks.shouldReport('GET /devices', '500')
+    streaks.shouldReport('GET /devices', '404')
+    streaks.shouldReport('GET /devices', '500')
+
+    expect(streaks.close('GET /devices')).toBe(3)
+  })
+
   it('answers null for a subject that had no streak', () => {
     const streaks = new FailureStreaks()
 

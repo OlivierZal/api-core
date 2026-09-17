@@ -12,9 +12,18 @@ export const FAILURE_REMINDER_INTERVAL_MS: number =
   REMINDER_INTERVAL_MINUTES * MS_PER_MINUTE
 
 interface Streak {
+  /**
+   * Consecutive failures with the current `reason` — what the reminder
+   * window is measured against.
+   */
   readonly failures: number
   readonly reason: string
   readonly remindedAt: number
+  /**
+   * Consecutive failures of the subject whatever their reason: the
+   * whole episode, which is what a recovery line counts.
+   */
+  readonly total: number
 }
 
 /**
@@ -49,9 +58,10 @@ export class FailureStreaks {
   /**
    * Close a subject's streak, if it had one.
    * @param subject - The endpoint or task that succeeded.
-   * @returns How many failures the streak counted, the one that opened
-   * it included, or `null` when none was open — the caller writes a
-   * recovery line only for the former.
+   * @returns How many failures the episode counted — every reason it
+   * went through, the failure that opened it included — or `null` when
+   * none was open; the caller writes a recovery line only for the
+   * former.
    */
   public close(subject: string): number | null {
     const streak = this.#streaks.get(subject)
@@ -59,7 +69,7 @@ export class FailureStreaks {
       return null
     }
     this.#streaks.delete(subject)
-    return streak.failures
+    return streak.total
   }
 
   /**
@@ -74,8 +84,17 @@ export class FailureStreaks {
   public shouldReport(subject: string, reason: string): boolean {
     const now = performance.now()
     const streak = this.#streaks.get(subject)
+    const total = (streak?.total ?? 0) + 1
     if (streak?.reason !== reason) {
-      this.#streaks.set(subject, { failures: 1, reason, remindedAt: now })
+      // A new reason restarts the reminder window, never the episode:
+      // the recovery line counts an upstream that alternated 500, 404,
+      // 500 as the one outage it was.
+      this.#streaks.set(subject, {
+        failures: 1,
+        reason,
+        remindedAt: now,
+        total,
+      })
       return true
     }
     const isDue = now - streak.remindedAt >= FAILURE_REMINDER_INTERVAL_MS
@@ -83,6 +102,7 @@ export class FailureStreaks {
       failures: streak.failures + 1,
       reason,
       remindedAt: isDue ? now : streak.remindedAt,
+      total,
     })
     return isDue
   }
