@@ -12,6 +12,7 @@ INJECTED here, never owned.
 [![Node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FOlivierZal%2Fapi-core%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](package.json)
 [![GitHub release](https://img.shields.io/github/v/release/OlivierZal/api-core?sort=semver)](https://github.com/OlivierZal/api-core/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/OlivierZal/api-core/ci.yml?branch=main&label=CI)](https://github.com/OlivierZal/api-core/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/OlivierZal/api-core/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/OlivierZal/api-core/security/code-scanning)
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=OlivierZal_api-core&metric=alert_status)](https://sonarcloud.io/dashboard?id=OlivierZal_api-core)
 [![Test coverage](https://sonarcloud.io/api/project_badges/measure?project=OlivierZal_api-core&metric=coverage)](https://sonarcloud.io/component_measures?id=OlivierZal_api-core&metric=coverage)
