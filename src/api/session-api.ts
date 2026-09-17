@@ -68,7 +68,14 @@ const reason = (error: unknown): string => {
   if (error instanceof Error) {
     return `${error.name}: ${error.message}`
   }
-  return typeof error === 'string' ? error : `a thrown ${typeof error}`
+  // A PRIMITIVE names itself, so two distinct thrown values stay two
+  // streaks; an object names its type only — its default stringification
+  // says nothing, and a walk over it could print a credential.
+  return typeof error === 'string' ||
+    typeof error === 'number' ||
+    typeof error === 'boolean'
+    ? String(error)
+    : `a thrown ${typeof error}`
 }
 
 // The error's snapshot carries the method as the caller spelled it

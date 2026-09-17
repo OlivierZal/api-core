@@ -2411,8 +2411,21 @@ describe(SessionAPI, () => {
       await harness.bestEffortCycle(cast('offline'))
       await harness.bestEffortCycle(cast('offline'))
       await harness.bestEffortCycle(cast(7))
+      await harness.bestEffortCycle(cast(42))
 
-      expect(logger.error).toHaveBeenCalledTimes(2)
+      expect(logger.error).toHaveBeenCalledTimes(3)
+    })
+
+    // An object says nothing under default stringification, and walking
+    // it could print a credential: its TYPE is the identity.
+    it('keys a thrown object on its type alone', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await harness.bestEffortCycle(cast({ code: 1 }))
+      await harness.bestEffortCycle(cast({ code: 2 }))
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
     })
 
     it('closes the cycle streak with one recovery line', async () => {
