@@ -74,7 +74,8 @@ const reason = (error: unknown): string => {
   return typeof error === 'string' ||
     typeof error === 'number' ||
     typeof error === 'bigint' ||
-    typeof error === 'boolean'
+    typeof error === 'boolean' ||
+    typeof error === 'symbol'
     ? String(error)
     : `a thrown ${typeof error}`
 }
