@@ -21,11 +21,8 @@ import {
   RegistrySyncError,
 } from '../../src/errors/index.ts'
 import { HttpClient, HttpError } from '../../src/http/index.ts'
-import {
-  createRedaction,
-  FAILURE_REMINDER_INTERVAL_MS,
-  REDACTED,
-} from '../../src/observability/index.ts'
+import { FAILURE_REMINDER_INTERVAL_MS } from '../../src/observability/failure-streaks.ts'
+import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 import {
   cast,

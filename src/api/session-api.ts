@@ -14,13 +14,15 @@ import {
   type HttpResponse,
   isHttpError,
 } from '../http/index.ts'
+// Internal to the mechanism: no consumer builds its own streaks, so the
+// class stays off the observability barrel.
+import { FailureStreaks } from '../observability/failure-streaks.ts'
 import {
   type Redaction,
   APICallRequestData,
   APICallResponseData,
   baseRedaction,
   createAPICallErrorData,
-  FailureStreaks,
   LifecycleEmitter,
 } from '../observability/index.ts'
 import {
