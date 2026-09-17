@@ -77,6 +77,9 @@ const requestSubject = (
   url: string | undefined,
 ): string => `${(method ?? '').toUpperCase()} ${url ?? ''}`
 
+const pluralize = (count: number, noun: string): string =>
+  `${String(count)} ${noun}${count === 1 ? '' : 's'}`
+
 const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 
 // Automatic re-login backoff after a REJECTED sign-in: an upstream that
@@ -1110,11 +1113,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   // A subject that answers again closes its streak with ONE line, so a
   // reader sees where the episode ended without diffing timestamps.
+  // The subject is built on the REDACTED url on both sides: `HttpError`
+  // redacts its snapshot in its constructor, so a url carrying a
+  // credential in its query opens the streak under its redacted
+  // spelling — closing it with the raw one would leave the streak
+  // standing and hold back the failures that follow.
   #closeRequestStreak(method: string, url: string): void {
-    const failures = this.#failureStreaks.close(requestSubject(method, url))
+    const redactedUrl = this.#redaction.redactUrl(url)
+    const failures = this.#failureStreaks.close(
+      requestSubject(method, redactedUrl),
+    )
     if (failures !== null) {
       this.logger.log(
-        `${method} ${this.#redaction.redactUrl(url)} answered again after ${String(failures)} failed attempts`,
+        `${method} ${redactedUrl} answered again after ${pluralize(failures, 'failed attempt')}`,
       )
     }
   }
@@ -1314,7 +1325,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     const failures = this.#failureStreaks.close(SYNC_CYCLE_SUBJECT)
     if (failures !== null) {
       this.logger.log(
-        `Fetching devices succeeded again after ${String(failures)} failed cycles`,
+        `Fetching devices succeeded again after ${pluralize(failures, 'failed cycle')}`,
       )
     }
     return entries

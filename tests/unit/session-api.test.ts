@@ -2037,7 +2037,39 @@ describe(SessionAPI, () => {
 
       expect(
         loggedLines(logger).filter((line) => line.includes('answered again')),
-      ).toStrictEqual(['POST /control answered again after 1 failed attempts'])
+      ).toStrictEqual(['POST /control answered again after 1 failed attempt'])
+    })
+
+    // `HttpError` redacts its snapshot in its constructor, so a url
+    // carrying a credential in its query opens the streak under its
+    // REDACTED spelling. Closing it with the raw url would leave the
+    // streak standing and hold back the failures that follow it.
+    it('closes the streak of a url whose query carries a credential', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      const url = '/devices?token=base-secret'
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('get', url)).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_OK)
+      await harness.callRequest('get', url)
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('get', url)).rejects.toThrow(
+        'status code 500',
+      )
+
+      const recovery = loggedLines(logger).filter((line) =>
+        line.includes('answered again'),
+      )
+
+      expect(recovery).toStrictEqual([
+        `GET /devices?token=${REDACTED} answered again after 1 failed attempt`,
+      ])
+      expect(logger.error).toHaveBeenCalledTimes(2)
     })
 
     it('stays quiet in the call log for a non-HTTP failure', async () => {
