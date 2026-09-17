@@ -73,6 +73,7 @@ const reason = (error: unknown): string => {
   // says nothing, and a walk over it could print a credential.
   return typeof error === 'string' ||
     typeof error === 'number' ||
+    typeof error === 'bigint' ||
     typeof error === 'boolean'
     ? String(error)
     : `a thrown ${typeof error}`
