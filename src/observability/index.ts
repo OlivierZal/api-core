@@ -6,6 +6,10 @@ export { APICallLogData } from './context.ts'
 export { createAPICallErrorData } from './error.ts'
 export { LifecycleEmitter } from './events-emitter.ts'
 export {
+  FAILURE_REMINDER_INTERVAL_MS,
+  FailureStreaks,
+} from './failure-streaks.ts'
+export {
   BASE_SENSITIVE_KEYS,
   baseRedaction,
   createRedaction,

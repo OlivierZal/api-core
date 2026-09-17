@@ -510,6 +510,38 @@ traffic must not defer itself. Added in 1.7.0 for heatzy-api's return
 to its June cadence (a registry refresh every five seconds, where an
 overlap with a write is the common case, not the edge).
 
+**A repeated failure is ONE event in the log, not one line per
+attempt (1.8.0).** The cadence belongs to the host: heatzy-api reads
+every device every five seconds, so an endpoint that keeps refusing
+wrote 17,280 error entries a day — measured at two per cycle for a
+whole-cycle failure (the pipeline's `logError` line plus the cycle's
+own), and the diagnostic report a user pastes into an issue is exactly
+what those lines drown. heatzy-api 19.0.0 had already streaked its own
+per-device line; the two lines UNDER it had no such rule, which is why
+the mechanism belongs here. `FailureStreaks`
+(`src/observability/failure-streaks.ts`) keys a streak by SUBJECT —
+`METHOD url` for a call, `sync-cycle` for the heartbeat — and reports
+it when it opens, when its reason changes, and at most every
+`FAILURE_REMINDER_INTERVAL_MS` (five minutes) while it stands. A
+WINDOW, not a count: the count means nothing without the caller's
+cadence, which this package does not own. `logError` and
+`runBestEffortSyncCycle` consult it; a subject that answers again
+closes its streak with ONE line naming the failures it swallowed
+(`POST /control answered again after 3 failed attempts`, `Fetching
+devices succeeded again after 12 failed cycles`). Two rules the
+spelling depends on: the reason must be STABLE across repeats — status
+plus message for a call, name plus message for a cycle failure, never a
+value read off the payload, which would reopen the streak on every
+attempt (heatzy-api learned that on its own streak, keying a refusal on
+its failing PATHS rather than on the values it received) — and the
+method is uppercased into the subject, since the error's snapshot
+spells it as the caller did (`post`) while the pipeline context spells
+it `POST`, and one subject must not become two. The streaks are
+in-memory, cleared by `logOut` and by `[Symbol.dispose]`, and ride
+`performance.now()` like every window here. A dialect that must
+silence a line entirely still overrides `logError` (melcloud Home's
+`/context` 404).
+
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
 the BEST-EFFORT `syncRegistry`: `initialize()` has no try/catch and

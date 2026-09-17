@@ -20,6 +20,7 @@ import {
   APICallResponseData,
   baseRedaction,
   createAPICallErrorData,
+  FailureStreaks,
   LifecycleEmitter,
 } from '../observability/index.ts'
 import {
@@ -53,6 +54,28 @@ import { SyncManager } from './sync-manager.ts'
  * write, and would carry the stale value into the registry.
  */
 const SYNC_SETTLE_MS = 3000
+
+// The registry cycle is one subject: the whole heartbeat, whatever the
+// call inside it that failed.
+const SYNC_CYCLE_SUBJECT = 'sync-cycle'
+
+// A failure's identity, stable across repeats — the message of an
+// `HttpError` is its status line, so a persistent refusal keeps one
+// streak.
+const reason = (error: unknown): string => {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`
+  }
+  return typeof error === 'string' ? error : `a thrown ${typeof error}`
+}
+
+// The error's snapshot carries the method as the caller spelled it
+// (`post`), the pipeline context carries it uppercased: one subject
+// must not become two.
+const requestSubject = (
+  method: string | undefined,
+  url: string | undefined,
+): string => `${(method ?? '').toUpperCase()} ${url ?? ''}`
 
 const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 
@@ -250,17 +273,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // of the process, having announced a loss it can never retract.
   readonly #backoffRetry = new DisposableTimeout()
 
-  // One event per loss episode: rearmed by any cycle observed
-  // authenticated again (including the post-auth sync of a re-login).
-  // Cleared by every `logOut`, set by every acceptance. It answers the
-  // one question a raced sign-out cannot: has a sign-in CLAIMED the
-  // session since the user asked to end it? If one has, a flight that
-  // started before that sign-out must not clear — it would destroy what
-  // the claimant established.
-  #hasAcceptedSinceLogOut = false
-
-  #hasEmittedAuthenticationLost = false
-
   // Verdict recorded against the STORED credential: the server
   // definitively refused it (a real rejection — never a throttle,
   // whose lockout says nothing about the pair, and never a transport
@@ -272,6 +284,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // `true` indefinitely. In-memory on purpose, like the loss episode
   // marker above: a restart re-witnesses the refusal on its first
   // gated sign-in.
+  readonly #failureStreaks = new FailureStreaks()
+
+  // One event per loss episode: rearmed by any cycle observed
+  // authenticated again (including the post-auth sync of a re-login).
+  // Cleared by every `logOut`, set by every acceptance. It answers the
+  // one question a raced sign-out cannot: has a sign-in CLAIMED the
+  // session since the user asked to end it? If one has, a flight that
+  // started before that sign-out must not clear — it would destroy what
+  // the claimant established.
+  #hasAcceptedSinceLogOut = false
+
+  #hasEmittedAuthenticationLost = false
+
   #isCredentialRefused = false
 
   // Bumped by every logOut so async work that was in flight when the
@@ -619,6 +644,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     this.#backoffRetry.clear()
     this.clearSync()
     this.clearRegistry()
+    this.#failureStreaks.clear()
   }
 
   /**
@@ -697,6 +723,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * Releases the auto-sync timer and any retry-guard window; the instance must not be reused after disposal.
    */
   public [Symbol.dispose](): void {
+    this.#failureStreaks.clear()
     this.#backoffRetry[Symbol.dispose]()
     this.#syncManager[Symbol.dispose]()
     this.#retryGuard[Symbol.dispose]()
@@ -820,8 +847,21 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return this.isAuthenticated() && !this.#isCredentialRefused
   }
 
+  // One line per FAILURE, not per attempt: a host that polls — every
+  // five seconds on heatzy's registry cycle — turns an endpoint that
+  // keeps refusing into tens of thousands of entries a day, exactly
+  // when the diagnostic report a user pastes into an issue must stay
+  // readable. The line is written when the streak opens, when its
+  // reason changes and every FAILURE_REMINDER_INTERVAL_MS after that;
+  // `#closeRequestStreak` announces the recovery.
   protected logError(error: unknown): void {
-    if (isHttpError(error)) {
+    if (
+      isHttpError(error) &&
+      this.#failureStreaks.shouldReport(
+        requestSubject(error.config?.method, error.config?.url),
+        `${String(error.response.status)}: ${error.message}`,
+      )
+    ) {
       this.logger.error(String(createAPICallErrorData(error, this.#redaction)))
     }
   }
@@ -840,7 +880,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     const policy = this.#buildPolicy(context)
     const attempt = async (): Promise<HttpResponse<T>> => {
       try {
-        return await this.dispatch<T>(method, url, config)
+        const response = await this.dispatch<T>(method, url, config)
+        this.#closeRequestStreak(context.method, url)
+        return response
       } catch (error) {
         this.logError(error)
         throw error
@@ -880,9 +922,15 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     cycle: () => Promise<T>,
   ): Promise<T | []> {
     try {
-      return await cycle()
+      return await this.#runCycleAndCloseStreak(cycle)
     } catch (error) {
-      this.logger.error('Failed to fetch devices:', error)
+      // The cadence is the host's, so the same cycle can fail 17,280
+      // times a day: the failure is one streak, not one line per tick.
+      if (
+        this.#failureStreaks.shouldReport(SYNC_CYCLE_SUBJECT, reason(error))
+      ) {
+        this.logger.error('Failed to fetch devices:', error)
+      }
       return []
     }
   }
@@ -1058,6 +1106,17 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       )
     }
     return new CompositePolicy(policies)
+  }
+
+  // A subject that answers again closes its streak with ONE line, so a
+  // reader sees where the episode ended without diffing timestamps.
+  #closeRequestStreak(method: string, url: string): void {
+    const failures = this.#failureStreaks.close(requestSubject(method, url))
+    if (failures !== null) {
+      this.logger.log(
+        `${method} ${this.#redaction.redactUrl(url)} answered again after ${String(failures)} failed attempts`,
+      )
+    }
   }
 
   // Schedule the single retry the gate's own deadline is already known
@@ -1246,6 +1305,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       return null
     }
     return { password, username }
+  }
+
+  async #runCycleAndCloseStreak<T extends readonly unknown[]>(
+    cycle: () => Promise<T>,
+  ): Promise<T> {
+    const entries = await cycle()
+    const failures = this.#failureStreaks.close(SYNC_CYCLE_SUBJECT)
+    if (failures !== null) {
+      this.logger.log(
+        `Fetching devices succeeded again after ${String(failures)} failed cycles`,
+      )
+    }
+    return entries
   }
 
   // The sign-in half of a resume, split out so the gate and the

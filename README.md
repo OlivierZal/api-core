@@ -147,6 +147,14 @@ The four settings it persists are named by their accessors — `expiry`,
 `loginBackoffUntil`, `password`, `username` — so a host that already
 holds those keys keeps its stored values.
 
+A failure that repeats is ONE event in your log. Whatever cadence your
+client polls on, a call that keeps failing and a registry cycle that
+keeps failing are each reported when the streak opens, when its reason
+changes, and at most every five minutes while it stands; the recovery
+is one line naming how many failures the streak swallowed
+(`GET /devices answered again after 42 failed attempts`). Override the
+protected `logError` when a dialect must silence a line entirely.
+
 ## Testing
 
 The helpers every SDK suite used to copy come from the `./testing`
