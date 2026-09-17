@@ -69,7 +69,7 @@ describe(FailureStreaks, () => {
     expect(streaks.shouldReport('GET /devices', '503')).toBe(false)
   })
 
-  it('answers the swallowed count when a streak closes', () => {
+  it('answers how many failures the streak counted when it closes', () => {
     const streaks = new FailureStreaks()
     streaks.shouldReport('GET /devices', '503')
     streaks.shouldReport('GET /devices', '503')

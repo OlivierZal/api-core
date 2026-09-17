@@ -49,8 +49,9 @@ export class FailureStreaks {
   /**
    * Close a subject's streak, if it had one.
    * @param subject - The endpoint or task that succeeded.
-   * @returns The failures the streak swallowed, or `null` when none was
-   * open — the caller writes a recovery line only for the former.
+   * @returns How many failures the streak counted, the one that opened
+   * it included, or `null` when none was open — the caller writes a
+   * recovery line only for the former.
    */
   public close(subject: string): number | null {
     const streak = this.#streaks.get(subject)

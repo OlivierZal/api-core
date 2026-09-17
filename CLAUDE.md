@@ -526,7 +526,7 @@ it when it opens, when its reason changes, and at most every
 WINDOW, not a count: the count means nothing without the caller's
 cadence, which this package does not own. `logError` and
 `runBestEffortSyncCycle` consult it; a subject that answers again
-closes its streak with ONE line naming the failures it swallowed
+closes its streak with ONE line naming the failures it counted, the one that opened it included
 (`POST /control answered again after 3 failed attempts`, `Fetching
 devices succeeded again after 12 failed cycles`). Two rules the
 spelling depends on: the reason must be STABLE across repeats — status
