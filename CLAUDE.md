@@ -538,8 +538,8 @@ method is uppercased into the subject, since the error's snapshot
 spells it as the caller did (`post`) while the pipeline context spells
 it `POST`, and one subject must not become two. The streaks are
 in-memory, cleared by `logOut` and by `[Symbol.dispose]`, and ride
-`performance.now()` like every window here. A dialect still silences an expected failure by
-overriding `logError` (melcloud Home's `/context` 404) — its error
+`performance.now()` like every window here. A dialect still silences an
+expected failure by overriding `logError` (melcloud Home's `/context` 404) — its error
 ENTRY only: the streak is keyed by the pipeline, which judges any
 `HttpError` reportable, so a silenced endpoint that starts answering
 again still writes ONE recovery line. Making that verdict the dialect's
