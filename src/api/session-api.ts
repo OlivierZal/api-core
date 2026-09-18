@@ -1465,9 +1465,15 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     url: string,
     error: unknown,
   ): boolean {
-    return this.#failureStreaks.shouldReport(
-      requestSubject(method, this.#redaction.redactUrl(url)),
-      reason(error),
+    // Only what `logError` can WRITE is streaked: a transport rejection
+    // it stays quiet about would otherwise open a silent streak and
+    // earn a recovery line for a failure the log never showed.
+    return (
+      isHttpError(error) &&
+      this.#failureStreaks.shouldReport(
+        requestSubject(method, this.#redaction.redactUrl(url)),
+        `${String(error.response.status)}: ${error.message}`,
+      )
     )
   }
 }

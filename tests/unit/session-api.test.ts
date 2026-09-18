@@ -2069,6 +2069,26 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledTimes(2)
     })
 
+    // A rejection `logError` stays quiet about must not earn a recovery
+    // line either: what is not reported is not streaked.
+    it('announces no recovery after a failure it never reported', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      mockFetch.mockRejectedValueOnce(new TypeError('offline'))
+
+      await expect(harness.callRequest('get', '/devices')).rejects.toThrow(
+        'offline',
+      )
+
+      respondWith(HTTP_OK)
+      await harness.callRequest('get', '/devices')
+
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(
+        loggedLines(logger).filter((line) => line.includes('answered again')),
+      ).toStrictEqual([])
+    })
+
     it('stays quiet in the call log for a non-HTTP failure', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
