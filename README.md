@@ -153,7 +153,9 @@ keeps failing are each reported when the streak opens, when its reason
 changes, and at most every five minutes while it stands; the recovery
 is one line counting the whole streak, the failure that opened it
 included: `GET /devices answered again after 42 failed attempts`. Override the
-protected `logError` when a dialect must silence a line entirely.
+protected `logError` to silence a dialect's expected failure — its error
+ENTRY, not its recovery line, which the pipeline writes on its own
+verdict: any `HttpError` opens a streak.
 
 ## Testing
 

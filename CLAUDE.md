@@ -538,9 +538,16 @@ method is uppercased into the subject, since the error's snapshot
 spells it as the caller did (`post`) while the pipeline context spells
 it `POST`, and one subject must not become two. The streaks are
 in-memory, cleared by `logOut` and by `[Symbol.dispose]`, and ride
-`performance.now()` like every window here. A dialect that must
-silence a line entirely still overrides `logError` (melcloud Home's
-`/context` 404).
+`performance.now()` like every window here. A dialect still silences an expected failure by
+overriding `logError` (melcloud Home's `/context` 404) — its error
+ENTRY only: the streak is keyed by the pipeline, which judges any
+`HttpError` reportable, so a silenced endpoint that starts answering
+again still writes ONE recovery line. Making that verdict the dialect's
+would take either a `this`-less predicate hook (refused by
+`class-methods-use-this`, and the family adds no disables) or a
+`logError` returning a boolean — a protected-signature change, a major
+for a line that appears only when a silenced endpoint recovers.
+Documented rather than built.
 
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
