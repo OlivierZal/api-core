@@ -20,7 +20,8 @@ import {
   AuthenticationThrottledError,
   RegistrySyncError,
 } from '../../src/errors/index.ts'
-import { HttpClient } from '../../src/http/index.ts'
+import { HttpClient, HttpError } from '../../src/http/index.ts'
+import { FAILURE_REMINDER_INTERVAL_MS } from '../../src/observability/failure-streaks.ts'
 import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 import {
@@ -69,6 +70,8 @@ const HTTP_OK = 200
 const HTTP_BAD_REQUEST = 400
 const HTTP_UNAUTHORIZED = 401
 const HTTP_TOO_MANY_REQUESTS = 429
+const HTTP_NOT_FOUND = 404
+
 const HTTP_SERVER_ERROR = 500
 const HTTP_BAD_GATEWAY = 502
 
@@ -1964,6 +1967,128 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledTimes(1)
     })
 
+    // One line per FAILURE, not per attempt: the SDKs poll on their own
+    // cadence — every five seconds on heatzy's registry — so an endpoint
+    // that keeps refusing would fill a diagnostic report on its own.
+    it('logs a repeated identical call failure once per reminder window', async () => {
+      expect.assertions(6)
+
+      const logger = createLogger()
+      vi.useFakeTimers(fakeClocks)
+      using harness = new Harness({ logger })
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        respondWith(HTTP_SERVER_ERROR)
+
+        // eslint-disable-next-line no-await-in-loop -- the clauses below count the lines a SEQUENCE of failures writes
+        await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+          'status code 500',
+        )
+      }
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(FAILURE_REMINDER_INTERVAL_MS)
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
+
+      expect(logger.error).toHaveBeenCalledTimes(2)
+
+      vi.useRealTimers()
+    })
+
+    it('logs the failure again when the same call fails differently', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_NOT_FOUND)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 404',
+      )
+
+      expect(logger.error).toHaveBeenCalledTimes(2)
+    })
+
+    it('announces the recovery of a call that had a streak, once', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_OK)
+      await harness.callRequest('post', '/control')
+      respondWith(HTTP_OK)
+      await harness.callRequest('post', '/control')
+
+      expect(
+        loggedLines(logger).filter((line) => line.includes('answered again')),
+      ).toStrictEqual(['POST /control answered again after 1 failed attempt'])
+    })
+
+    // `HttpError` redacts its snapshot in its constructor, so a url
+    // carrying a credential in its query opens the streak under its
+    // REDACTED spelling. Closing it with the raw url would leave the
+    // streak standing and hold back the failures that follow it.
+    it('closes the streak of a url whose query carries a credential', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      const url = '/devices?token=base-secret'
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('get', url)).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_OK)
+      await harness.callRequest('get', url)
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('get', url)).rejects.toThrow(
+        'status code 500',
+      )
+
+      const recovery = loggedLines(logger).filter((line) =>
+        line.includes('answered again'),
+      )
+
+      expect(recovery).toStrictEqual([
+        `GET /devices?token=${REDACTED} answered again after 1 failed attempt`,
+      ])
+      expect(logger.error).toHaveBeenCalledTimes(2)
+    })
+
+    // A rejection `logError` stays quiet about must not earn a recovery
+    // line either: what is not reported is not streaked.
+    it('announces no recovery after a failure it never reported', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      mockFetch.mockRejectedValueOnce(new TypeError('offline'))
+
+      await expect(harness.callRequest('get', '/devices')).rejects.toThrow(
+        'offline',
+      )
+
+      respondWith(HTTP_OK)
+      await harness.callRequest('get', '/devices')
+
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(
+        loggedLines(logger).filter((line) => line.includes('answered again')),
+      ).toStrictEqual([])
+    })
+
     it('stays quiet in the call log for a non-HTTP failure', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
@@ -1974,6 +2099,21 @@ describe(SessionAPI, () => {
       )
 
       expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    // The line is written from the error alone: the streak decides
+    // WHETHER `logError` is called, never what it can serialize.
+    it('logs an HTTP failure whose snapshot carries no request', () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      harness.callLogError(
+        new HttpError('Request failed', {
+          response: { data: {}, headers: {}, status: HTTP_SERVER_ERROR },
+        }),
+      )
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
     })
 
     it('logs nothing for a value that is not an HTTP error', () => {
@@ -2250,6 +2390,90 @@ describe(SessionAPI, () => {
         'Failed to fetch devices:',
         error,
       )
+    })
+
+    // The host's cadence decides how often the cycle runs, so the same
+    // failure can recur 17,280 times a day: it is one streak in the log.
+    it('reports a repeating cycle failure once per reminder window', async () => {
+      const logger = createLogger()
+      vi.useFakeTimers(fakeClocks)
+      using harness = new Harness({ logger })
+      const error = new Error('boom')
+
+      await harness.bestEffortCycle(error)
+      await harness.bestEffortCycle(error)
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(FAILURE_REMINDER_INTERVAL_MS)
+      await harness.bestEffortCycle(error)
+
+      expect(logger.error).toHaveBeenCalledTimes(2)
+
+      vi.useRealTimers()
+    })
+
+    it('reports the cycle failure in full again when its reason changes', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await harness.bestEffortCycle(new Error('boom'))
+      await harness.bestEffortCycle(new TypeError('offline'))
+
+      expect(logger.error).toHaveBeenCalledTimes(2)
+    })
+
+    it('keys the cycle streak on a thrown non-Error by its own value', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await harness.bestEffortCycle(cast('offline'))
+      await harness.bestEffortCycle(cast('offline'))
+      await harness.bestEffortCycle(cast(7))
+      await harness.bestEffortCycle(cast(42))
+
+      expect(logger.error).toHaveBeenCalledTimes(3)
+    })
+
+    // An object says nothing under default stringification, and walking
+    // it could print a credential: its TYPE is the identity.
+    it('keys a thrown object on its type alone', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await harness.bestEffortCycle(cast({ code: 1 }))
+      await harness.bestEffortCycle(cast({ code: 2 }))
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
+    })
+
+    it('closes the cycle streak with one recovery line', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      seedSession(harness)
+      await harness.bestEffortCycle(new Error('boom'))
+      await harness.bestEffortCycle(new Error('boom'))
+
+      await harness.fetchMutable()
+      await harness.fetchMutable()
+
+      expect(
+        loggedLines(logger).filter((line) => line.includes('succeeded again')),
+      ).toStrictEqual([
+        'Fetching devices succeeded again after 2 failed cycles',
+      ])
+    })
+
+    it('starts a new streak after a sign-out', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      const error = new Error('boom')
+
+      await harness.bestEffortCycle(error)
+      harness.logOut()
+      await harness.bestEffortCycle(error)
+
+      expect(logger.error).toHaveBeenCalledTimes(2)
     })
 
     it('re-applies a sign-out that the cycle raced', async () => {
