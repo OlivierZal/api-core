@@ -513,9 +513,9 @@ overlap with a write is the common case, not the edge).
 **A repeated failure is ONE event in the log, not one line per
 attempt (1.8.0).** The cadence belongs to the host: heatzy-api reads
 every device every five seconds, so an endpoint that keeps refusing
-wrote 17,280 error entries a day — measured at two per cycle for a
-whole-cycle failure (the pipeline's `logError` line plus the cycle's
-own), and the diagnostic report a user pastes into an issue is exactly
+ran 17,280 cycles a day, two error entries each for a whole-cycle
+failure (the pipeline's `logError` line plus the cycle's own) — 34,560
+lines — and the diagnostic report a user pastes into an issue is exactly
 what those lines drown. heatzy-api 19.0.0 had already streaked its own
 per-device line; the two lines UNDER it had no such rule, which is why
 the mechanism belongs here. `FailureStreaks`
@@ -529,9 +529,10 @@ cadence, which this package does not own. `logError` and
 closes its streak with ONE line counting the whole streak, the failure
 that opened it included: `POST /control answered again after 3 failed
 attempts`, `Fetching devices succeeded again after 12 failed cycles`. Two rules the
-spelling depends on: the reason must be STABLE across repeats — status
-plus message for a call, name plus message for a cycle failure, never a
-value read off the payload, which would reopen the streak on every
+spelling depends on: the reason must be STABLE across repeats — the
+error's name plus its message, which for an `HttpError` is its status
+line, so a dialect whose reader shapes the message owns that stability;
+never a value read off the payload, which would reopen the streak on every
 attempt (heatzy-api learned that on its own streak, keying a refusal on
 its failing PATHS rather than on the values it received) — and the
 method is uppercased into the subject, since the error's snapshot

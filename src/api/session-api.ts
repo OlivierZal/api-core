@@ -282,17 +282,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // of the process, having announced a loss it can never retract.
   readonly #backoffRetry = new DisposableTimeout()
 
-  // Verdict recorded against the STORED credential: the server
-  // definitively refused it (a real rejection — never a throttle,
-  // whose lockout says nothing about the pair, and never a transport
-  // blip) and no sign-in has been accepted since. The stored session
-  // deliberately stays — a refusal changes the verdict, never the
-  // session — so this record is what lets `#settleSyncCycle` stop
-  // serving a session whose account died server-side, where a dialect
-  // that never wipes on a refusal keeps `isAuthenticated()` reading
-  // `true` indefinitely. In-memory on purpose, like the loss episode
-  // marker above: a restart re-witnesses the refusal on its first
-  // gated sign-in.
+  // Per-subject failure streaks (`#shouldReportRequestFailure`).
   readonly #failureStreaks = new FailureStreaks()
 
   // One event per loss episode: rearmed by any cycle observed
@@ -306,6 +296,17 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   #hasEmittedAuthenticationLost = false
 
+  // Verdict recorded against the STORED credential: the server
+  // definitively refused it (a real rejection — never a throttle,
+  // whose lockout says nothing about the pair, and never a transport
+  // blip) and no sign-in has been accepted since. The stored session
+  // deliberately stays — a refusal changes the verdict, never the
+  // session — so this record is what lets `#settleSyncCycle` stop
+  // serving a session whose account died server-side, where a dialect
+  // that never wipes on a refusal keeps `isAuthenticated()` reading
+  // `true` indefinitely. In-memory on purpose, like the loss episode
+  // marker above: a restart re-witnesses the refusal on its first
+  // gated sign-in.
   #isCredentialRefused = false
 
   // Bumped by every logOut so async work that was in flight when the
