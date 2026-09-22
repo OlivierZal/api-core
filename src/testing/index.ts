@@ -192,12 +192,8 @@ const buildMockHeaders = (
   return result
 }
 
-const serializeBody = (body: unknown): string => {
-  if (typeof body === 'string') {
-    return body
-  }
-  return JSON.stringify(body)
-}
+const serializeBody = (body: unknown): string =>
+  typeof body === 'string' ? body : JSON.stringify(body)
 
 /**
  * Build a fetch-compatible `Response` covering the surface

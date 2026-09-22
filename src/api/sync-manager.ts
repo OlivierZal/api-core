@@ -95,10 +95,12 @@ export class SyncManager implements Disposable {
       return
     }
     this.#holds -= 1
-    if (this.#holds === 0) {
-      this.#quietUntil = performance.now() + quietMs
-      this.#arm()
+    if (this.#holds !== 0) {
+      return
     }
+
+    this.#quietUntil = performance.now() + quietMs
+    this.#arm()
   }
 
   /**

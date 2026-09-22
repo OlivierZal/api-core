@@ -26,10 +26,9 @@ const parseHttpDate = (
 ): Temporal.Instant | null => {
   // eslint-disable-next-line unicorn/prefer-temporal -- `Retry-After` HTTP-dates (IMF-fixdate) are not parsable by Temporal; `Date.parse` is the platform parser for them.
   const dateMs = Date.parse(value)
-  if (Number.isNaN(dateMs) || dateMs <= now.epochMilliseconds) {
-    return null
-  }
-  return Temporal.Instant.fromEpochMilliseconds(dateMs)
+  return Number.isNaN(dateMs) || dateMs <= now.epochMilliseconds
+    ? null
+    : Temporal.Instant.fromEpochMilliseconds(dateMs)
 }
 
 // Resolve an RFC 9110 `Retry-After` value into the absolute unblock
@@ -80,10 +79,9 @@ export const formatDurationHuman = (duration: Temporal.Duration): string => {
   if (minutes === 0) {
     return `${String(seconds)} ${pluralize(seconds, 'second')}`
   }
-  if (seconds === 0) {
-    return `${String(minutes)} ${pluralize(minutes, 'minute')}`
-  }
-  return `${String(minutes)} ${pluralize(minutes, 'minute')}, ${String(seconds)} ${pluralize(seconds, 'second')}`
+  return seconds === 0
+    ? `${String(minutes)} ${pluralize(minutes, 'minute')}`
+    : `${String(minutes)} ${pluralize(minutes, 'minute')}, ${String(seconds)} ${pluralize(seconds, 'second')}`
 }
 
 /**
