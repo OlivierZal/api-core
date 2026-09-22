@@ -182,10 +182,7 @@ const combineSignals = (
   if (defined.length === 0) {
     return undefined
   }
-  if (defined.length === 1) {
-    return defined[0]
-  }
-  return AbortSignal.any(defined)
+  return defined.length === 1 ? defined[0] : AbortSignal.any(defined)
 }
 
 /**

@@ -715,10 +715,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       // the reactive auth-failure path the sync itself triggered, and
       // awaiting the shared promise would have it wait on its own
       // caller.
-      if (this.#acceptedSignIns !== this.#resumeAcceptedBefore) {
-        return true
-      }
-      return this.#resumePromise
+      return (
+        this.#acceptedSignIns !== this.#resumeAcceptedBefore ||
+        this.#resumePromise
+      )
     }
     this.#resumeAcceptedBefore = this.#acceptedSignIns
     this.#resumePromise = this.#attemptResumeSession()
@@ -1059,7 +1059,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       return false
     }
     const credentials = this.#resolvePersistedCredentials()
-    return credentials === null ? false : this.#runStoredSignIn(credentials)
+    return credentials !== null && this.#runStoredSignIn(credentials)
   }
 
   /**
@@ -1314,10 +1314,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   #resolvePersistedCredentials(): LoginCredentials | null {
     const { password, username } = this
-    if (username === '' || password === '') {
-      return null
-    }
-    return { password, username }
+    return username === '' || password === '' ? null : { password, username }
   }
 
   async #runCycleAndCloseStreak<T extends readonly unknown[]>(
