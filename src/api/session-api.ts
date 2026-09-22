@@ -14,9 +14,10 @@ import {
   type HttpResponse,
   isHttpError,
 } from '../http/index.ts'
-// Internal to the mechanism: no consumer builds its own streaks, so the
-// class stays off the observability barrel.
-import { FailureStreaks } from '../observability/failure-streaks.ts'
+import {
+  FailureStreaks,
+  failureReason,
+} from '../observability/failure-streaks.ts'
 import {
   type Redaction,
   APICallRequestData,
@@ -60,25 +61,6 @@ const SYNC_SETTLE_MS = 3000
 // The registry cycle is one subject: the whole heartbeat, whatever the
 // call inside it that failed.
 const SYNC_CYCLE_SUBJECT = 'sync-cycle'
-
-// A failure's identity, stable across repeats — the message of an
-// `HttpError` is its status line, so a persistent refusal keeps one
-// streak.
-const reason = (error: unknown): string => {
-  if (error instanceof Error) {
-    return `${error.name}: ${error.message}`
-  }
-  // A PRIMITIVE names itself, so two distinct thrown values stay two
-  // streaks; an object names its type only — its default stringification
-  // says nothing, and a walk over it could print a credential.
-  return typeof error === 'string' ||
-    typeof error === 'number' ||
-    typeof error === 'bigint' ||
-    typeof error === 'boolean' ||
-    typeof error === 'symbol'
-    ? String(error)
-    : `a thrown ${typeof error}`
-}
 
 const requestSubject = (method: string, url: string): string =>
   `${method} ${url}`
@@ -935,7 +917,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       // The cadence is the host's, so the same cycle can fail 17,280
       // times a day: the failure is one streak, not one line per tick.
       if (
-        this.#failureStreaks.shouldReport(SYNC_CYCLE_SUBJECT, reason(error))
+        this.#failureStreaks.shouldReport(
+          SYNC_CYCLE_SUBJECT,
+          failureReason(error),
+        )
       ) {
         this.logger.error('Failed to fetch devices:', error)
       }
@@ -1473,7 +1458,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       isHttpError(error) &&
       this.#failureStreaks.shouldReport(
         requestSubject(method, this.#redaction.redactUrl(url)),
-        reason(error),
+        failureReason(error),
       )
     )
   }

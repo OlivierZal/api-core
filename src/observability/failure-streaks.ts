@@ -11,6 +11,32 @@ const REMINDER_INTERVAL_MINUTES = 5
 export const FAILURE_REMINDER_INTERVAL_MS: number =
   REMINDER_INTERVAL_MINUTES * MS_PER_MINUTE
 
+/**
+ * A failure's identity for a streak, stable across repeats: an `Error`
+ * by its name and message — an `HttpError`'s message is its status
+ * line, so a persistent refusal keeps one streak — a PRIMITIVE by its
+ * own value, so two distinct thrown values stay two streaks, and any
+ * other object by its type alone, since its default stringification
+ * says nothing and a walk over it could print a credential. A dialect
+ * whose message carries a value that changes between attempts (a
+ * schema refusal naming what it received) derives its own reason from
+ * this one.
+ * @param error - What the call or cycle threw.
+ * @returns The reason to hand {@link FailureStreaks.shouldReport}.
+ */
+export const failureReason = (error: unknown): string => {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`
+  }
+  return typeof error === 'string' ||
+    typeof error === 'number' ||
+    typeof error === 'bigint' ||
+    typeof error === 'boolean' ||
+    typeof error === 'symbol'
+    ? String(error)
+    : `a thrown ${typeof error}`
+}
+
 interface Streak {
   /**
    * Consecutive failures with the current `reason` — what the reminder
@@ -70,6 +96,17 @@ export class FailureStreaks {
     }
     this.#streaks.delete(subject)
     return streak.total
+  }
+
+  /**
+   * Whether a subject's streak is open — for a dialect that reports a
+   * subject through a streak of its own and holds the pipeline's line
+   * back meanwhile.
+   * @param subject - The endpoint or task.
+   * @returns `true` while a streak stands for it.
+   */
+  public has(subject: string): boolean {
+    return this.#streaks.has(subject)
   }
 
   /**

@@ -70,6 +70,9 @@ export {
   baseRedaction,
   createAPICallErrorData,
   createRedaction,
+  FAILURE_REMINDER_INTERVAL_MS,
+  FailureStreaks,
+  failureReason,
   LifecycleEmitter,
   REDACTED,
 } from './observability/index.ts'

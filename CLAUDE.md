@@ -548,7 +548,14 @@ would take either a `this`-less predicate hook (refused by
 `class-methods-use-this`, and the family adds no disables) or a
 `logError` returning a boolean — a protected-signature change, a major
 for a line that appears only when a silenced endpoint recovers.
-Documented rather than built.
+Documented rather than built. The class, its `failureReason` and the window are
+PUBLIC since 1.9.0: heatzy-api keys its per-device streak on them — a
+payload that refuses the schema is no `HttpError`, a subject the
+pipeline cannot key — and asks `has()` to hold the pipeline's reminder
+back while the device's own streak reports it. 1.8.0 had kept the class
+off the barrel on the premise that no consumer builds streaks; heatzy-api
+had built two the day before, which is the hand-mirrored twin this
+package exists to end.
 
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls

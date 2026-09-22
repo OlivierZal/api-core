@@ -155,7 +155,12 @@ is one line counting the whole streak, the failure that opened it
 included: `GET /devices answered again after 42 failed attempts`. Override the
 protected `logError` to silence a dialect's expected failure — its error
 ENTRY, not its recovery line, which the pipeline writes on its own
-verdict: any `HttpError` opens a streak.
+verdict: any `HttpError` opens a streak. The class is exported for a
+dialect's own subjects — `FailureStreaks`, with `failureReason` for the
+identity and `FAILURE_REMINDER_INTERVAL_MS` for the window — so a
+failure the pipeline cannot key (a payload refusing a schema) is
+streaked the same way rather than re-implemented; `has()` says whether
+a subject's streak is open.
 
 ## Testing
 
