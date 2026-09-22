@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   FAILURE_REMINDER_INTERVAL_MS,
   FailureStreaks,
+  failureReason,
 } from '../../src/observability/failure-streaks.ts'
 
 // The windows ride the monotonic clock, so the fake set names
@@ -100,6 +101,20 @@ describe(FailureStreaks, () => {
     expect(streaks.shouldReport('GET /devices', '503')).toBe(true)
   })
 
+  it('answers whether a subject has an open streak', () => {
+    const streaks = new FailureStreaks()
+
+    expect(streaks.has('GET /devices')).toBe(false)
+
+    streaks.shouldReport('GET /devices', '503')
+
+    expect(streaks.has('GET /devices')).toBe(true)
+
+    streaks.close('GET /devices')
+
+    expect(streaks.has('GET /devices')).toBe(false)
+  })
+
   it('forgets every streak when cleared', () => {
     const streaks = new FailureStreaks()
     streaks.shouldReport('GET /devices', '503')
@@ -108,5 +123,22 @@ describe(FailureStreaks, () => {
 
     expect(streaks.close('GET /devices')).toBeNull()
     expect(streaks.shouldReport('GET /context', '503')).toBe(true)
+  })
+})
+
+describe(failureReason, () => {
+  it('names an error by its name and message', () => {
+    expect(failureReason(new TypeError('boom'))).toBe('TypeError: boom')
+  })
+
+  it('names a primitive by its own value', () => {
+    expect(failureReason('offline')).toBe('offline')
+    expect(failureReason(404)).toBe('404')
+  })
+
+  // Its default stringification says nothing, and a walk over it could
+  // print a credential.
+  it('names any other object by its type alone', () => {
+    expect(failureReason({ password: 'secret' })).toBe('a thrown object')
   })
 })
