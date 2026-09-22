@@ -1971,20 +1971,27 @@ describe(SessionAPI, () => {
     // cadence — every five seconds on heatzy's registry — so an endpoint
     // that keeps refusing would fill a diagnostic report on its own.
     it('logs a repeated identical call failure once per reminder window', async () => {
-      expect.assertions(6)
-
       const logger = createLogger()
       vi.useFakeTimers(fakeClocks)
       using harness = new Harness({ logger })
 
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        respondWith(HTTP_SERVER_ERROR)
+      respondWith(HTTP_SERVER_ERROR)
 
-        // eslint-disable-next-line no-await-in-loop -- the clauses below count the lines a SEQUENCE of failures writes
-        await expect(harness.callRequest('post', '/control')).rejects.toThrow(
-          'status code 500',
-        )
-      }
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
+
+      respondWith(HTTP_SERVER_ERROR)
+
+      await expect(harness.callRequest('post', '/control')).rejects.toThrow(
+        'status code 500',
+      )
 
       expect(logger.error).toHaveBeenCalledTimes(1)
 
