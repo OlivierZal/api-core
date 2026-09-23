@@ -28,15 +28,10 @@ const withErrorMessage = (
 export const createAPICallErrorData = (
   error: Error,
   redaction?: Redaction,
-): APICallLogDataWithErrorMessage => {
-  if (isHttpError(error)) {
-    return withErrorMessage(
-      new APICallResponseData(error.response, error.config, redaction),
-      error.message,
-    )
-  }
-  return withErrorMessage(
-    new APICallRequestData(undefined, redaction),
+): APICallLogDataWithErrorMessage =>
+  withErrorMessage(
+    isHttpError(error)
+      ? new APICallResponseData(error.response, error.config, redaction)
+      : new APICallRequestData(undefined, redaction),
     error.message,
   )
-}
