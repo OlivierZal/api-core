@@ -41,6 +41,7 @@ import { MS_PER_MINUTE } from '../time-units.ts'
 import type {
   LifecycleEvents,
   Logger,
+  RequestLifecycleContext,
   SettingManager,
   SyncCallback,
 } from './types.ts'
@@ -96,13 +97,12 @@ const LOGIN_BACKOFF_THROTTLE_MS = 7_200_000
  */
 const throttleBackoffMs = (error: AuthenticationThrottledError): number => {
   const { retryAfter } = error
-  if (retryAfter === null) {
-    return LOGIN_BACKOFF_THROTTLE_MS
-  }
-  return Math.min(
-    retryAfter.total({ unit: 'milliseconds' }),
-    LOGIN_BACKOFF_THROTTLE_MS,
-  )
+  return retryAfter === null
+    ? LOGIN_BACKOFF_THROTTLE_MS
+    : Math.min(
+        retryAfter.total({ unit: 'milliseconds' }),
+        LOGIN_BACKOFF_THROTTLE_MS,
+      )
 }
 
 const labelLogger = (logger: Logger, label: string): Logger => ({
@@ -1061,43 +1061,14 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @param context.url - URL of the request being dispatched.
    * @returns The composite policy ready to run the attempt.
    */
-  #buildPolicy(context: {
-    correlationId: string
-    method: string
-    url: string
-  }): ResiliencePolicy {
-    const policies: ResiliencePolicy[] = []
-    if (this.#rateLimitPolicy !== undefined) {
-      policies.push(this.#rateLimitPolicy)
-    }
-    policies.push(this.#authRetryPolicy)
-    if (context.method === 'GET') {
-      policies.push(
-        new TransientRetryPolicy(
-          {
-            onRetry: (
-              retryAttempt: number,
-              error: unknown,
-              delayMs: number,
-            ): void => {
-              // The URL is request material like any other: a token
-              // can ride inline in its query (`?code=…`), so it goes
-              // through the vocabulary before reaching the log line.
-              this.logger.log(
-                `Transient server error on ${this.#redaction.redactUrl(context.url)}: retry ${String(retryAttempt)} in ${String(delayMs)} ms`,
-              )
-              this.events.emitRetry({
-                ...context,
-                attempt: retryAttempt,
-                delayMs,
-                error,
-              })
-            },
-          },
-          this.abortSignal,
-        ),
-      )
-    }
+  #buildPolicy(context: RequestLifecycleContext): ResiliencePolicy {
+    const policies: ResiliencePolicy[] = [
+      ...(this.#rateLimitPolicy === undefined ? [] : [this.#rateLimitPolicy]),
+      this.#authRetryPolicy,
+      ...(context.method === 'GET'
+        ? [this.#transientRetryPolicy(context)]
+        : []),
+    ]
     return new CompositePolicy(policies)
   }
 
@@ -1460,6 +1431,34 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         requestSubject(method, this.#redaction.redactUrl(url)),
         failureReason(error),
       )
+    )
+  }
+
+  // The innermost wrapper around the raw dispatch, GET only: a retry
+  // re-sends a read, never a write.
+  #transientRetryPolicy(context: RequestLifecycleContext): ResiliencePolicy {
+    return new TransientRetryPolicy(
+      {
+        onRetry: (
+          retryAttempt: number,
+          error: unknown,
+          delayMs: number,
+        ): void => {
+          // The URL is request material like any other: a token can
+          // ride inline in its query (`?code=…`), so it goes through
+          // the vocabulary before reaching the log line.
+          this.logger.log(
+            `Transient server error on ${this.#redaction.redactUrl(context.url)}: retry ${String(retryAttempt)} in ${String(delayMs)} ms`,
+          )
+          this.events.emitRetry({
+            ...context,
+            attempt: retryAttempt,
+            delayMs,
+            error,
+          })
+        },
+      },
+      this.abortSignal,
     )
   }
 }
