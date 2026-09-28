@@ -5,7 +5,7 @@ workflow expected before opening a pull request.
 
 ## Prerequisites
 
-- Node.js from [`.nvmrc`](.nvmrc) — currently `22.22.2`, the install
+- Node.js from [`.nvmrc`](.nvmrc) — currently `22.23.0`, the install
   floor of the toolchain (`nvm use` / `fnm use` pick it up).
   `engines.node` in [`package.json`](package.json) is a different, lower
   number (`>=22.20.0`): what the code needs where it runs, derived in

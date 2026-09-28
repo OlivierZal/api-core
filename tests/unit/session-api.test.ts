@@ -199,7 +199,7 @@ class Harness extends SessionAPI<SyncParams> {
   // and rethrown verbatim otherwise.
   public shouldNarrowAuthFailures = false
 
-  // melcloud Classic's wiring: its reactive recovery IS
+  // `melcloud` Classic's wiring: its reactive recovery IS
   // `resumeSession`, taken with the rejected credential still standing.
   public shouldReauthenticateViaResume = false
 
