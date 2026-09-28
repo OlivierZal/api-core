@@ -719,12 +719,14 @@ one typed host.
   this package ships inside the SDKs, which install as production
   dependencies of the Homey apps, whose measured device floor is Node
   22.20. Re-derive on change; never copy a sibling's number blindly.
-- **`.nvmrc` is the INSTALL floor — 22.22.2 — not the engines floor,
+- **`.nvmrc` is the INSTALL floor — 22.23.0 — not the engines floor,
   and it is derived in configs, not here.** It names the lowest Node
   the toolchain configs pulls into every consumer installs on
-  (`eslint-plugin-package-json` requires `^22.22.2 || >=24.15.0`;
-  configs' own `engines` states the same value, and its CLAUDE.md
-  carries the derivation). `engines` above keeps the device floor,
+  (`eslint-plugin-es-x` requires `^22.23.0 || ^24.18.0 || >=26.4.0`,
+  the intersection with `eslint-plugin-package-json`'s
+  `^22.22.2 || >=24.15.0` being the same; configs' own `engines`
+  states that value since 7.0.0, and its CLAUDE.md carries the
+  derivation). `engines` above keeps the device floor,
   because that is what the CODE needs where it runs; a fresh clone on
   22.20 would run the package but cannot `npm ci` its dev tree, which
   is the one thing `.nvmrc` must tell it. One rule for the four
