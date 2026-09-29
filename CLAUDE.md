@@ -895,7 +895,7 @@ gate OK, and every review thread is settled. The Dependabot lane
 (`.github/workflows/dependabot.yml` arming `gh pr merge --auto` once CI
 passes) is the one deliberate exception and stays as documented.
 
-All eleven workflows are stubs calling the family reusables in
+All ten workflows are stubs calling the family reusables in
 `OlivierZal/configs`, pinned `@<sha> # vX.Y.Z` — one version, both
 channels: the npm pin and every `uses:` ref move in the same commit,
 and `check-pins` fails a mismatch. `publish.yml` and `docs.yml` joined
