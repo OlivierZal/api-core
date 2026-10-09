@@ -58,7 +58,13 @@ Every redaction seat takes a `Redaction` engine built from YOUR wire's
 credential keys. The base vocabulary (`authorization`, `cookie`,
 `set-cookie`, `password`, `username`, `email`, `token`) always applies;
 `createRedaction` unions your keys on top, so extending can only ever
-redact MORE:
+redact MORE. A second, separately declared tier names the user-entered
+or identifying fields your wire carries (`personalDataKeys`: a device's
+display name, an account holder's name) — blanked exactly like a
+credential, in every dump and snapshot, and empty unless you fill it:
+the core cannot know your field names, and the request/response dumps
+print whole bodies on purpose, so a name stays out of a pasted report
+only where you declare its key.
 
 ```ts title="wiring"
 import {
@@ -69,8 +75,11 @@ import {
   RetryGuard,
 } from '@olivierzal/api-core'
 
-// One engine per SDK, seeded with its protocol's credential keys.
-const redaction = createRedaction(['x-mitscontextkey', 'contextkey'])
+// One engine per SDK, seeded with its protocol's credential keys and
+// the user-entered fields its payloads carry.
+const redaction = createRedaction(['x-mitscontextkey', 'contextkey'], {
+  personalDataKeys: ['givenDisplayName'],
+})
 
 // Every HttpError this client throws carries a snapshot redacted
 // through that vocabulary — request headers/body/params/url-query and

@@ -30,7 +30,8 @@ export const BASE_SENSITIVE_KEYS: readonly string[] = [
  */
 export interface Redaction {
   /**
-   * Whether a header or payload key names a secret.
+   * Whether a header or payload key names a secret — or a personal-data
+   * field the SDK declared through {@link RedactionOptions.personalDataKeys}.
    * @param key - Header or payload key, in any casing.
    * @returns `true` when the value behind the key must be redacted.
    */
@@ -52,6 +53,27 @@ export interface Redaction {
    * @returns The value with sensitive entries replaced by {@link REDACTED}.
    */
   readonly redactValue: (value: unknown) => unknown
+}
+
+/**
+ * The second vocabulary tier {@link createRedaction} accepts, declared
+ * APART from the credential keys because it answers a different rule:
+ * a credential must never reach a log because it opens an account; a
+ * personal-data field must never reach one because the user typed it,
+ * and a diagnostic report pasted into a public issue reproduces it.
+ */
+export interface RedactionOptions {
+  /**
+   * User-entered or identifying fields the SDK names on its wire — a
+   * device's display name, an account holder's name, a postal address —
+   * in any casing. Blanked exactly like a credential wherever they ride
+   * (request and response bodies, headers, params, URL queries, the
+   * thrown `HttpError` snapshot). The core knows no wire's field names,
+   * so this tier is EMPTY unless the SDK fills it, and the credential
+   * tier never depends on it: an SDK passing none redacts exactly what
+   * it did before.
+   */
+  readonly personalDataKeys?: Iterable<string> | undefined
 }
 
 // JSON text is a string-borne carrier of secrets: an upstream can
@@ -138,17 +160,34 @@ const createUrlRedaction =
  * Builds the {@link Redaction} engine for one protocol vocabulary. The
  * mechanism is owned here; the vocabulary is the caller's — the
  * consuming SDK passes every key that names a credential on ITS wire,
- * and the engine unions them with {@link BASE_SENSITIVE_KEYS}.
+ * and the engine unions them with {@link BASE_SENSITIVE_KEYS}. A second,
+ * separately declared tier names the user-entered fields the same wire
+ * carries ({@link RedactionOptions.personalDataKeys}); both tiers blank
+ * the same way, through every seat the engine reaches.
  * @param extraSensitiveKeys - Protocol-specific credential keys, in any
  * casing, added on top of the base vocabulary.
+ * @param options - The personal-data tier; omit it to redact
+ * credentials alone.
+ * @param options.personalDataKeys - User-entered or identifying fields
+ * the SDK names, in any casing.
  * @returns The bound redaction engine.
  */
 export const createRedaction = (
   extraSensitiveKeys: Iterable<string> = [],
+  { personalDataKeys = [] }: RedactionOptions = {},
 ): Redaction => {
+  // Two tiers declared apart, ONE blanking verdict: every seat asks the
+  // engine "must the value behind this key be blanked?", and the answer
+  // is the same `******` whether the key opens an account or names its
+  // owner. The request/response dumps print whole bodies on purpose (a
+  // report needs them), so the only way a display name stays out of a
+  // pasted report is for the key to be in this set — the SDK declares
+  // it, since the core knows no wire's field names (api-core#50,
+  // 2026-10-09). The three sources feed ONE set, a union, so the
+  // personal tier can only ever ADD to what is blanked, never remove.
   const sensitiveKeys = new Set(
-    [...BASE_SENSITIVE_KEYS, ...extraSensitiveKeys].map((key) =>
-      key.toLowerCase(),
+    [...BASE_SENSITIVE_KEYS, ...extraSensitiveKeys, ...personalDataKeys].map(
+      (key) => key.toLowerCase(),
     ),
   )
   const isSensitive: KeySensitivity = (key) =>

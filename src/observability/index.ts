@@ -1,6 +1,6 @@
 export type { LoggableRequestConfig } from './context.ts'
 export type { APICallLogDataWithErrorMessage } from './error.ts'
-export type { Redaction } from './redaction.ts'
+export type { Redaction, RedactionOptions } from './redaction.ts'
 
 export { APICallLogData } from './context.ts'
 export { createAPICallErrorData } from './error.ts'

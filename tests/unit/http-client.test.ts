@@ -131,6 +131,27 @@ describe('httpError', () => {
     expect(error.response.headers['x-trace']).toBe('abc')
   })
 
+  // The personal-data tier (api-core#50) is seated at construction like
+  // the credentials: a thrown snapshot that echoes a `/context` body must
+  // not carry the display names its owner typed, through any logger.
+  it('blanks the declared personal-data fields of the echoed body', () => {
+    const error = new HttpError('boom', {
+      redaction: createRedaction([], {
+        personalDataKeys: ['givenDisplayName'],
+      }),
+      response: {
+        data: { givenDisplayName: 'Living room', id: 'unit-1' },
+        headers: {},
+        status: 500,
+      },
+    })
+
+    expect(error.response.data).toStrictEqual({
+      givenDisplayName: '******',
+      id: 'unit-1',
+    })
+  })
+
   // A sign-in carries the account's credentials in the BODY, and a
   // credential can ride a query string too: the snapshot redacts every
   // field, not just the obvious header.
