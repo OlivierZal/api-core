@@ -176,6 +176,7 @@ describe('api call response data', () => {
 const logShape = z.object({
   headers: jsonRecord.optional(),
   requestData: jsonRecord.optional(),
+  responseData: jsonRecord.optional(),
 })
 
 const parseLog = (value: string): z.infer<typeof logShape> => {
@@ -352,5 +353,84 @@ describe(createAPICallErrorData, () => {
     const parsed = parseRecord(data.toString())
 
     expect(parsed.errorMessage).toBe('Timeout')
+  })
+})
+
+// The personal-data tier (api-core#50) rides the same engine as the
+// credentials, so the three dumps a body reaches — the request line,
+// the response line and the error snapshot — blank it without any seat
+// changing. The shells serialize whole bodies on purpose (a report
+// needs them); the SDK names the fields the core cannot know.
+describe('personal-data redaction', () => {
+  const DISPLAY_NAME = 'Living room'
+  const redaction = createRedaction([], {
+    personalDataKeys: ['givenDisplayName'],
+  })
+
+  it('blanks a declared personal-data key in the request dump', () => {
+    const config = createConfig({
+      data: { givenDisplayName: DISPLAY_NAME, id: 'unit-1' },
+    })
+    const call = new APICallRequestData(config, redaction)
+    const requestData = defined(parseLog(call.toString()).requestData)
+
+    expect(requestData.givenDisplayName).toBe('******')
+    expect(requestData.id).toBe('unit-1')
+  })
+
+  it('blanks a declared personal-data key deep inside the response dump', () => {
+    const response = createResponse({
+      data: {
+        buildings: [
+          { airToAirUnits: [{ givenDisplayName: DISPLAY_NAME, id: 'unit-1' }] },
+        ],
+      },
+    })
+    const call = new APICallResponseData(response, createConfig(), redaction)
+    const line = call.toString()
+
+    expect(line).toContain('"givenDisplayName": "******"')
+    expect(line).toContain('"id": "unit-1"')
+    expect(line).not.toContain(DISPLAY_NAME)
+  })
+
+  // The error route rebuilds the snapshot from the thrown error; the
+  // engine forwarded there is what covers it even when the transport
+  // that threw carried the base vocabulary alone.
+  it('blanks a declared personal-data key on the error route', () => {
+    const error = new HttpError('Request failed', {
+      config: createConfig(),
+      response: {
+        data: { givenDisplayName: DISPLAY_NAME, id: 'unit-1' },
+        headers: {},
+        status: 500,
+      },
+    })
+    const data = createAPICallErrorData(error, redaction)
+    const responseData = defined(parseLog(data.toString()).responseData)
+
+    expect(responseData.givenDisplayName).toBe('******')
+    expect(responseData.id).toBe('unit-1')
+  })
+
+  // Credentials never wait on the personal tier: the base vocabulary
+  // blanks the account pair whether or not the SDK declared any field.
+  it('keeps the credential tier whole beside the personal-data tier', () => {
+    const config = createConfig({
+      data: { givenDisplayName: DISPLAY_NAME, password: 's3cret' },
+    })
+    const call = new APICallRequestData(config, redaction)
+    const requestData = defined(parseLog(call.toString()).requestData)
+
+    expect(requestData.password).toBe('******')
+    expect(requestData.givenDisplayName).toBe('******')
+  })
+
+  it('leaves the field verbatim when no SDK declares it', () => {
+    const config = createConfig({ data: { givenDisplayName: DISPLAY_NAME } })
+    const call = new APICallRequestData(config, createRedaction(['contextkey']))
+    const requestData = defined(parseLog(call.toString()).requestData)
+
+    expect(requestData.givenDisplayName).toBe(DISPLAY_NAME)
   })
 })

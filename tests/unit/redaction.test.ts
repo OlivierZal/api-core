@@ -43,6 +43,70 @@ describe.concurrent(createRedaction, () => {
     expect(second.isSensitive('contextkey')).toBe(false)
   })
 
+  // The personal-data tier (api-core#50): a `/context` body names every
+  // unit by the string its owner typed, the dumps print whole bodies on
+  // purpose, and the core knows no wire's field names — so the SDK
+  // declares them apart from its credentials, and the engine blanks
+  // them the same way, wherever the key rides.
+  it('blanks a declared personal-data key like a credential, in any casing', () => {
+    const redaction = createRedaction([], {
+      personalDataKeys: ['givenDisplayName'],
+    })
+
+    expect(redaction.isSensitive('givenDisplayName')).toBe(true)
+    expect(redaction.isSensitive('GIVENDISPLAYNAME')).toBe(true)
+    expect(
+      redaction.redactValue({
+        buildings: [
+          {
+            airToAirUnits: [{ givenDisplayName: 'Living room', id: 'unit-1' }],
+            name: 'Home',
+          },
+        ],
+      }),
+    ).toStrictEqual({
+      buildings: [
+        {
+          airToAirUnits: [{ givenDisplayName: REDACTED, id: 'unit-1' }],
+          name: 'Home',
+        },
+      ],
+    })
+    expect(
+      redaction.redactUrl('/rename?givenDisplayName=Living%20room&id=1'),
+    ).toBe(`/rename?givenDisplayName=${REDACTED}&id=1`)
+  })
+
+  it('keeps the credential tiers whole whatever the personal-data tier holds', () => {
+    const redaction = createRedaction(['contextkey'], {
+      personalDataKeys: ['dev_alias'],
+    })
+
+    expect(redaction.isSensitive('password')).toBe(true)
+    expect(redaction.isSensitive('contextkey')).toBe(true)
+    expect(redaction.isSensitive('dev_alias')).toBe(true)
+    expect(redaction.isSensitive('did')).toBe(false)
+  })
+
+  // An SDK that declares no personal data redacts exactly what it did
+  // before the tier existed: the option is additive, never a default.
+  it.each([
+    ['no options bag', createRedaction(['contextkey'])],
+    ['an empty options bag', createRedaction(['contextkey'], {})],
+    [
+      'an empty personal-data tier',
+      createRedaction(['contextkey'], { personalDataKeys: [] }),
+    ],
+  ])('leaves a personal-data key verbatim with %s', (_name, redaction) => {
+    expect(redaction.isSensitive('givenDisplayName')).toBe(false)
+    expect(
+      redaction.redactValue({
+        ContextKey: 'secret',
+        givenDisplayName: 'Living room',
+      }),
+    ).toStrictEqual({ ContextKey: REDACTED, givenDisplayName: 'Living room' })
+  })
+
   it('redacts injected keys deep inside object payloads', () => {
     const redaction = createRedaction(['contextkey'])
 

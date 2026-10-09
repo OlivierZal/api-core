@@ -82,6 +82,13 @@ const HTTP_BAD_GATEWAY = 502
 const VENDOR_TOKEN_KEY = 'x-vendor-token'
 const VENDOR_SECRET = 'vendor-secret-value'
 
+// An SDK-style personal-data key and its value, standing in for the
+// consuming SDKs' own (`givenDisplayName`, `dev_alias`): a string the
+// user typed, which names no credential and so passes every tier but
+// the one the SDK declares.
+const DISPLAY_NAME_KEY = 'givenDisplayName'
+const DISPLAY_NAME = 'Living room'
+
 const REJECTED_MESSAGE = 'Vendor rejected the credentials'
 
 const CONCURRENT_CALLERS = 4
@@ -1902,6 +1909,102 @@ describe(SessionAPI, () => {
 
       expect(errorLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
       expect(errorLine).not.toContain(VENDOR_SECRET)
+    })
+
+    // The personal-data tier (api-core#50) reaches the same three lines
+    // through the same engine: the response dump prints the whole body
+    // on purpose, so the display name a `/context` body carries for
+    // every unit stays out of a pasted report only because the SDK
+    // declared its key. The credential tier is asserted beside it: the
+    // second tier adds, never replaces.
+    it('blanks the declared personal-data key in both dispatch lines beside the credentials', async () => {
+      const logger = createLogger()
+      using harness = new Harness(
+        { logger },
+        {
+          redaction: createRedaction([VENDOR_TOKEN_KEY], {
+            personalDataKeys: [DISPLAY_NAME_KEY],
+          }),
+        },
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockFetchResponse(
+          {
+            buildings: [
+              {
+                airToAirUnits: [
+                  { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
+                ],
+              },
+            ],
+          },
+          {},
+          HTTP_OK,
+        ),
+      )
+
+      await harness.callDispatch('post', '/context', {
+        data: { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
+        headers: { [VENDOR_TOKEN_KEY]: VENDOR_SECRET },
+      })
+
+      const [requestLine = '', responseLine = ''] = loggedLines(logger)
+
+      expect(requestLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(requestLine).not.toContain(DISPLAY_NAME)
+      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
+      expect(responseLine).toContain('"id": "unit-1"')
+      expect(responseLine).not.toContain(DISPLAY_NAME)
+    })
+
+    it('blanks the declared personal-data key in the error line even when the transport missed it', async () => {
+      const logger = createLogger()
+      using harness = new Harness(
+        { logger },
+        {
+          redaction: createRedaction([], {
+            personalDataKeys: [DISPLAY_NAME_KEY],
+          }),
+        },
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockFetchResponse(
+          { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
+          {},
+          HTTP_SERVER_ERROR,
+        ),
+      )
+
+      await expect(harness.callRequest('get', '/context')).rejects.toThrow(
+        'Request failed with status code 500',
+      )
+
+      const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
+
+      expect(errorLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
+      expect(errorLine).toContain('"id": "unit-1"')
+      expect(errorLine).not.toContain(DISPLAY_NAME)
+    })
+
+    // An SDK that declares nothing keeps today's dump byte for byte: the
+    // field prints, as the issue observed, until the SDK names it.
+    it('leaves an undeclared personal-data key verbatim in the response line', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger }, { redaction: vendorRedaction })
+      mockFetch.mockResolvedValueOnce(
+        mockFetchResponse(
+          { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
+          {},
+          HTTP_OK,
+        ),
+      )
+
+      await harness.callDispatch('get', '/context')
+
+      const [, responseLine = ''] = loggedLines(logger)
+
+      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}": "${DISPLAY_NAME}"`)
     })
 
     // The URL is request material too: a credential can ride inline in

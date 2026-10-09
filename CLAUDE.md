@@ -122,6 +122,35 @@ SDKs re-export it exactly like `RegistrySyncError`.
   diverged: response BODY and URL-query redaction (melcloud 52.0.x) AND
   header/body/params redaction (heatzy 14.0.0), plus the JSON-text
   branch in `redactValue` (melcloud 52.0.1).
+- **Personal data is a SECOND tier of the same engine, declared apart,
+  blanked alike (1.10.0, api-core#50, 2026-10-09).** The dispatch lines
+  print whole bodies on purpose — a report needs them — and MELCloud
+  Home's `/context` names every unit by the string its owner typed
+  (`givenDisplayName`), so a report pasted into a public issue
+  reproduced those names while every SDK-authored line obeyed
+  melcloud-api's personal-data rule (type and id only, never a
+  user-entered string). The engine is a KEY-NAME vocabulary and the
+  core knows no wire's field names, so the fix is the vocabulary seam
+  itself: `createRedaction(credentialKeys, { personalDataKeys })`. Two
+  tiers at the declaration, because they answer two rules (a credential
+  opens an account; a display name was typed by a person), ONE blanking
+  verdict at the seats, because every seat asks the same question. The
+  tier is engine-level, not a `SessionAPI` option, so the thrown
+  `HttpError` snapshot, the shells, `createAPICallErrorData` and the
+  dispatch lines all inherit it from the ONE engine each SDK builds —
+  the construction doctrine above, unchanged. Three things it is NOT:
+  a truncation (a shorter dump is a worse report, and still carries
+  names), a demotion of the dump to a `debug` channel (a `Logger`
+  contract change, a major, for lines the reports then lose), or a
+  default (the core cannot name `givenDisplayName` or `dev_alias`; an
+  SDK passing none redacts exactly what it did before, pinned). The
+  credential tiers stay unconditional: the personal tier can only ever
+  ADD. Pinned in `redaction.test.ts` (both tiers, casing, URL query,
+  the three no-declaration shapes), `observability.test.ts` (request
+  dump, response dump, error route), `http-client.test.ts` (the
+  construction-time snapshot) and `session-api.test.ts` (both dispatch
+  lines beside the credential key, the error line through a transport
+  that missed it, and the verbatim print when nothing is declared).
 
 ## Reconciliations — settled, not silent
 
@@ -795,6 +824,11 @@ external importer, through the root or through a subpath:
   `withRetryBackoff`), so a consumer spelling those signatures out needs
   the name. `SessionAPIConfig` left the list on 2026-09-07: heatzy-api's
   public config type extends it.
+
+1.10.0 added ONE type, `RedactionOptions` — the second parameter of
+`createRedaction` — bound by both SDKs' adoptions (each spells the
+personal-data tier at its `createRedaction` call); the value surface did
+not move, so `api-surface.test.ts` is unchanged.
 
 They STAY exported: an unconstructed export costs a consumer nothing, a
 host composing its own client outside `SessionAPI` may want exactly

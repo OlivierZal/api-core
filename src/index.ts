@@ -30,6 +30,7 @@ export type {
   APICallLogDataWithErrorMessage,
   LoggableRequestConfig,
   Redaction,
+  RedactionOptions,
 } from './observability/index.ts'
 export type {
   RateLimitDurationLike,
