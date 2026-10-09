@@ -183,8 +183,8 @@ export const createRedaction = (
   // report needs them), so the only way a display name stays out of a
   // pasted report is for the key to be in this set — the SDK declares
   // it, since the core knows no wire's field names (api-core#50,
-  // 2026-10-09). The credential tiers come first so the personal tier
-  // can only ever ADD to what is blanked, never remove.
+  // 2026-10-09). The three sources feed ONE set, a union, so the
+  // personal tier can only ever ADD to what is blanked, never remove.
   const sensitiveKeys = new Set(
     [...BASE_SENSITIVE_KEYS, ...extraSensitiveKeys, ...personalDataKeys].map(
       (key) => key.toLowerCase(),
