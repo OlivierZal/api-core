@@ -169,10 +169,11 @@ export const mockTemporalNowInstant = (): void => {
  * @category Testing
  */
 export const mockTemporalNowZoned = (): void => {
-  vi.spyOn(Temporal.Now, 'zonedDateTimeISO').mockImplementation((timezone) =>
-    Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(
-      timezone ?? 'UTC',
-    ),
+  vi.spyOn(Temporal.Now, 'zonedDateTimeISO').mockImplementation(
+    (timezone = 'UTC') =>
+      Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(
+        timezone,
+      ),
   )
 }
 
