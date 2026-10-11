@@ -798,10 +798,12 @@ the two SDKs are the only repos that pin the package (both at 1.2.0);
 the apps reach it through them, and the `fireAndForget` they import
 comes from `@olivierzal/homey-kit`, not from here. The root barrel
 exports 73 names, 47 values and 26 types — re-counted 2026-10-09:
-1.3.0 added `ValidationError` and `syncDevices`, #39 added
-`FailureStreaks`, `FAILURE_REMINDER_INTERVAL_MS` and `failureReason`
-(all five imported by both SDKs, so none counted below), and 1.10.0
-the type `RedactionOptions` (next paragraph); 22 of the 2026-09-07
+1.3.0 added `ValidationError` and `syncDevices` (both re-exported by
+both SDKs), #39 added `FailureStreaks` (imported by both SDKs' code),
+`failureReason` (by heatzy-api's code alone) and
+`FAILURE_REMINDER_INTERVAL_MS` (by both SDKs' suites alone) — each has
+an external importer, so none is counted below — and 1.10.0 the type
+`RedactionOptions` (next paragraph); 22 of the 2026-09-07
 barrel — fifteen values, seven types — have NO
 external importer, through the root or through a subpath:
 
