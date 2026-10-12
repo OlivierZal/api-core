@@ -7,6 +7,7 @@ import {
   APICallResponseData,
   createAPICallErrorData,
   createRedaction,
+  MAX_LOGGED_BODY_BYTES,
 } from '../../src/observability/index.ts'
 import { defined } from '../../src/testing/index.ts'
 
@@ -199,6 +200,64 @@ const parseLog = (value: string): z.infer<typeof logShape> => {
   const raw: unknown = JSON.parse(value)
   return logShape.parse(raw)
 }
+
+// The body bound: a record is one line of a hundred the host keeps and
+// uploads, so a body above the bound is omitted whole and counted —
+// never cut — on both routes the records take.
+describe('bounded bodies', () => {
+  const encoder = new TextEncoder()
+  const oversized = 'x'.repeat(MAX_LOGGED_BODY_BYTES)
+  const atTheBound = 'x'.repeat(MAX_LOGGED_BODY_BYTES - '""'.length)
+
+  it('keeps a body at the bound and omits one byte above it', () => {
+    const kept = new APICallResponseData(
+      { data: atTheBound, headers: {}, status: 200 },
+      createConfig(),
+    )
+    const omitted = new APICallResponseData(
+      { data: `${atTheBound}x`, headers: {}, status: 200 },
+      createConfig(),
+    )
+
+    expect(parseRecord(kept.toString()).responseData).toBe(atTheBound)
+    expect(parseRecord(omitted.toString()).responseData).toBe(
+      `[body omitted: ${String(MAX_LOGGED_BODY_BYTES + 1)} bytes]`,
+    )
+  })
+
+  it('counts the redacted serialisation in UTF-8 bytes, on the request body too', () => {
+    const data = new APICallRequestData(
+      createConfig({ data: { password: oversized, safe: 'é'.repeat(2048) } }),
+    )
+    // The password is blanked before measuring: 6 stars, not 4096 x.
+    const expected = encoder.encode(
+      JSON.stringify({ password: '******', safe: 'é'.repeat(2048) }),
+    ).length
+
+    expect(parseRecord(data.toString()).requestData).toBe(
+      `[body omitted: ${String(expected)} bytes]`,
+    )
+    expect(expected).toBeGreaterThan(MAX_LOGGED_BODY_BYTES)
+  })
+
+  it('bounds the error route the same way and keeps the small request body', () => {
+    const error = new HttpError('Request failed', {
+      config: createConfig(),
+      response: { data: { page: oversized }, headers: {}, status: 500 },
+    })
+    const parsed = parseRecord(createAPICallErrorData(error).toString())
+
+    expect(parsed.requestData).toStrictEqual({ key: 'value' })
+    expect(parsed.responseData).toMatch(/^\[body omitted: \d+ bytes\]$/v)
+    expect(parsed.errorMessage).toBe('Request failed')
+  })
+
+  it('leaves an absent body absent', () => {
+    const data = new APICallRequestData(createConfig({ data: undefined }))
+
+    expect(parseRecord(data.toString())).not.toHaveProperty('requestData')
+  })
+})
 
 describe('sensitive data redaction', () => {
   it('redacts credentials in request data', () => {
