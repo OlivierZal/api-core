@@ -151,6 +151,21 @@ SDKs re-export it exactly like `RegistrySyncError`.
   construction-time snapshot) and `session-api.test.ts` (both dispatch
   lines beside the credential key, the error line through a transport
   that missed it, and the verbatim print when nothing is declared).
+- **One record, one line (1.11.0, 2026-10-12).** `APICallLogData.toString()`
+  emits compact JSON, not indented JSON. The host that reads the dispatch
+  lines back — a Homey diagnostic report — keeps about the last hundred
+  LINES of an app's stdout and of its stderr (a 46.7.5 report measured
+  2026-10-12 held exactly 100, cut mid-object). Indented, one Classic
+  `/User/ListDevices` body is several hundred lines, so the report held
+  the tail of one dump and nothing else: not the energy report's
+  `applied` line, not the session lines — the SDK-authored lines the
+  1.10.0 verdict kept the dump BESIDE, not instead of. Compact JSON is
+  neither of the two things that verdict refused: every byte stays (no
+  truncation) and the channel stays `log` (no demotion); only the line
+  structure changes, so a call costs two lines instead of the window,
+  and a reader pastes a record into a formatter. The fixed key order is
+  unchanged. Pinned in `observability.test.ts` (a nested record holds
+  no newline).
 
 ## Reconciliations — settled, not silent
 
