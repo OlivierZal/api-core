@@ -75,6 +75,7 @@ export {
   FailureStreaks,
   failureReason,
   LifecycleEmitter,
+  MAX_LOGGED_BODY_BYTES,
   REDACTED,
 } from './observability/index.ts'
 export {

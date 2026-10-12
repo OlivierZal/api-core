@@ -63,8 +63,10 @@ or identifying fields your wire carries (`personalDataKeys`: a device's
 display name, an account holder's name) — blanked exactly like a
 credential, in every dump and snapshot, and empty unless you fill it:
 the core cannot know your field names, and the request/response dumps
-print whole bodies on purpose, so a name stays out of a pasted report
-only where you declare its key.
+print bodies up to `MAX_LOGGED_BODY_BYTES` (4 KiB; a larger body is
+omitted whole and counted, so a hundred one-line records fit a Homey
+diagnostic report and its upload), so a name stays out of a pasted
+report only where you declare its key.
 
 ```ts title="wiring"
 import {

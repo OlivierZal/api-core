@@ -151,21 +151,36 @@ SDKs re-export it exactly like `RegistrySyncError`.
   construction-time snapshot) and `session-api.test.ts` (both dispatch
   lines beside the credential key, the error line through a transport
   that missed it, and the verbatim print when nothing is declared).
-- **One record, one line (1.11.0, 2026-10-12).** `APICallLogData.toString()`
-  emits compact JSON, not indented JSON. The host that reads the dispatch
-  lines back — a Homey diagnostic report — keeps about the last hundred
-  LINES of an app's stdout and of its stderr (a 46.7.5 report measured
-  2026-10-12 held exactly 100, cut mid-object). Indented, one Classic
-  `/User/ListDevices` body is several hundred lines, so the report held
-  the tail of one dump and nothing else: not the energy report's
-  `applied` line, not the session lines — the SDK-authored lines the
-  1.10.0 verdict kept the dump BESIDE, not instead of. Compact JSON is
-  neither of the two things that verdict refused: every byte stays (no
-  truncation) and the channel stays `log` (no demotion); only the line
-  structure changes, so a call costs two lines instead of the window,
-  and a reader pastes a record into a formatter. The fixed key order is
-  unchanged. Pinned in `observability.test.ts` (a nested record holds
-  no newline).
+- **One record, one line, bodies bounded (1.11.0 and 1.12.0,
+  2026-10-12).** `APICallLogData.toString()` emits compact JSON, and a
+  `requestData`/`responseData` whose redacted serialisation exceeds
+  `MAX_LOGGED_BODY_BYTES` (4 KiB) is replaced by `[body omitted: N
+bytes]` — omitted whole, never cut, and counted. Two measured facts
+  and one inference drive it. Measured: a Homey diagnostic report keeps
+  about the last hundred LINES of an app's stdout (a com.melcloud 46.7.5
+  report read 2026-10-12 held exactly 100, cut mid-object; its stderr
+  held 36, so that stream's cap is inferred, not seen), and one indented
+  Classic `/User/ListDevices` body is several hundred lines, so the
+  report held the tail of one dump and no SDK-authored line — not the
+  energy report's `applied` line, not the session lines, the lines the
+  1.10.0 verdict kept the dump BESIDE. Inferred: the report uploads
+  through a request-body limit — Athom's tracker holds a report refused
+  with 413 (homey-apps-sdk-issues#237, 2021, closed without a stated
+  fix) and a default nginx caps a body at 1 MiB — so a hundred compact
+  records of whole `/User/ListDevices` or `/context` bodies (1.11.0
+  alone) could have made a report too large to send. Two streams of a
+  hundred records of at most 4 KiB stay under that limit with room for
+  the records' fields; the derivation is the bound's comment. The
+  1.10.0 verdict refused a truncation because a CUT dump is a worse
+  report that still carries names; an omitted body is not a cut — the
+  record says what was there and how big — and the big bodies it drops
+  are the ones whose content the SDK-authored lines already name. The
+  channel stays `log` (no demotion), the fixed key order is unchanged,
+  and a reader pastes a record into a formatter. Unverified, and only
+  checkable on a device: that a 4 KiB line survives the report whole.
+  Pinned in `observability.test.ts` (no newline in a nested record;
+  the bound at its edge, in UTF-8 bytes of the REDACTED body, on both
+  routes; an absent body stays absent).
 
 ## Reconciliations — settled, not silent
 

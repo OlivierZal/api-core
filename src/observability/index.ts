@@ -2,7 +2,7 @@ export type { LoggableRequestConfig } from './context.ts'
 export type { APICallLogDataWithErrorMessage } from './error.ts'
 export type { Redaction, RedactionOptions } from './redaction.ts'
 
-export { APICallLogData } from './context.ts'
+export { APICallLogData, MAX_LOGGED_BODY_BYTES } from './context.ts'
 export { createAPICallErrorData } from './error.ts'
 export { LifecycleEmitter } from './events-emitter.ts'
 export {

@@ -29,6 +29,7 @@ const EXPECTED = [
   'HttpStatus',
   'Intl',
   'LifecycleEmitter',
+  'MAX_LOGGED_BODY_BYTES',
   'MS_PER_DAY',
   'MS_PER_MINUTE',
   'MS_PER_SECOND',
