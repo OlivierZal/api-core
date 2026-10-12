@@ -16,7 +16,7 @@ export interface LoggableRequestConfig {
   readonly url?: string | undefined
 }
 
-// Fixed key order for consistent, readable JSON log output
+// Fixed key order, so two records of one kind read alike.
 const logKeys = [
   'dataType',
   'method',
@@ -57,9 +57,16 @@ export abstract class APICallLogData {
   }
 
   /**
-   * Serializes the log data to indented JSON in the fixed key order,
-   * redacting every value through the injected vocabulary.
-   * @returns The redacted, pretty-printed JSON log line.
+   * Serializes the log data to JSON in the fixed key order, redacting
+   * every value through the injected vocabulary. ONE record is ONE
+   * line: the host that reads these lines back (a Homey diagnostic
+   * report) keeps about the last hundred lines of an app's stdout and
+   * of its stderr, and an indented Classic `/User/ListDevices` body
+   * alone ran past that window, so a report carried the tail of one
+   * dump and no other line at all. Compact JSON keeps every byte of
+   * the dump — no truncation, no demotion — and costs two lines per
+   * call instead of the whole window.
+   * @returns The redacted, single-line JSON record.
    */
   public toString(): string {
     const filtered = Object.fromEntries(
@@ -80,6 +87,6 @@ export abstract class APICallLogData {
           ]
         }),
     )
-    return JSON.stringify(filtered, null, 2)
+    return JSON.stringify(filtered)
   }
 }

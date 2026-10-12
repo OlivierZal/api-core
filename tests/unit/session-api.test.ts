@@ -1852,12 +1852,12 @@ describe(SessionAPI, () => {
 
       const [requestLine = '', responseLine = ''] = loggedLines(logger)
 
-      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
-      expect(requestLine).toContain(`"authorization": "${REDACTED}"`)
-      expect(requestLine).toContain(`"password": "${REDACTED}"`)
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}":"${REDACTED}"`)
+      expect(requestLine).toContain(`"authorization":"${REDACTED}"`)
+      expect(requestLine).toContain(`"password":"${REDACTED}"`)
       expect(requestLine).not.toContain(VENDOR_SECRET)
       expect(requestLine).not.toContain('base-secret')
-      expect(responseLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(responseLine).toContain(`"${VENDOR_TOKEN_KEY}":"${REDACTED}"`)
       expect(responseLine).not.toContain(VENDOR_SECRET)
     })
 
@@ -1880,9 +1880,9 @@ describe(SessionAPI, () => {
 
       const [requestLine = ''] = loggedLines(logger)
 
-      expect(requestLine).toContain(`"authorization": "${REDACTED}"`)
+      expect(requestLine).toContain(`"authorization":"${REDACTED}"`)
       expect(requestLine).not.toContain('base-secret')
-      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${VENDOR_SECRET}"`)
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}":"${VENDOR_SECRET}"`)
     })
 
     // The transport's construction-time redaction normally covers the
@@ -1907,7 +1907,7 @@ describe(SessionAPI, () => {
 
       const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
 
-      expect(errorLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(errorLine).toContain(`"${VENDOR_TOKEN_KEY}":"${REDACTED}"`)
       expect(errorLine).not.toContain(VENDOR_SECRET)
     })
 
@@ -1950,11 +1950,11 @@ describe(SessionAPI, () => {
 
       const [requestLine = '', responseLine = ''] = loggedLines(logger)
 
-      expect(requestLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
-      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}": "${REDACTED}"`)
+      expect(requestLine).toContain(`"${DISPLAY_NAME_KEY}":"${REDACTED}"`)
+      expect(requestLine).toContain(`"${VENDOR_TOKEN_KEY}":"${REDACTED}"`)
       expect(requestLine).not.toContain(DISPLAY_NAME)
-      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
-      expect(responseLine).toContain('"id": "unit-1"')
+      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}":"${REDACTED}"`)
+      expect(responseLine).toContain('"id":"unit-1"')
       expect(responseLine).not.toContain(DISPLAY_NAME)
     })
 
@@ -1982,8 +1982,8 @@ describe(SessionAPI, () => {
 
       const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
 
-      expect(errorLine).toContain(`"${DISPLAY_NAME_KEY}": "${REDACTED}"`)
-      expect(errorLine).toContain('"id": "unit-1"')
+      expect(errorLine).toContain(`"${DISPLAY_NAME_KEY}":"${REDACTED}"`)
+      expect(errorLine).toContain('"id":"unit-1"')
       expect(errorLine).not.toContain(DISPLAY_NAME)
     })
 
@@ -2004,7 +2004,7 @@ describe(SessionAPI, () => {
 
       const [, responseLine = ''] = loggedLines(logger)
 
-      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}": "${DISPLAY_NAME}"`)
+      expect(responseLine).toContain(`"${DISPLAY_NAME_KEY}":"${DISPLAY_NAME}"`)
     })
 
     // The URL is request material too: a credential can ride inline in

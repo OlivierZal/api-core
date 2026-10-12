@@ -116,6 +116,22 @@ describe('api call request data', () => {
     expect(parsed).toHaveProperty('params')
     expect(parsed).toHaveProperty('requestData')
   })
+
+  // One record, one line: the host keeps a bounded number of LINES, and
+  // an indented body ran a whole report's window on its own.
+  it('serializes a nested record on a single line', () => {
+    const data = new APICallRequestData(
+      createConfig({
+        data: { body: { list: [1, { deep: { deeper: 'value' } }] } },
+      }),
+    )
+    const record = data.toString()
+
+    expect(record).not.toContain('\n')
+    expect(parseRecord(record).requestData).toStrictEqual({
+      body: { list: [1, { deep: { deeper: 'value' } }] },
+    })
+  })
 })
 
 describe('api call response data', () => {
@@ -389,8 +405,8 @@ describe('personal-data redaction', () => {
     const call = new APICallResponseData(response, createConfig(), redaction)
     const line = call.toString()
 
-    expect(line).toContain('"givenDisplayName": "******"')
-    expect(line).toContain('"id": "unit-1"')
+    expect(line).toContain('"givenDisplayName":"******"')
+    expect(line).toContain('"id":"unit-1"')
     expect(line).not.toContain(DISPLAY_NAME)
   })
 
