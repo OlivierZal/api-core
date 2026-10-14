@@ -226,27 +226,17 @@ class Harness extends SessionAPI<SyncParams> {
 
   public constructor(
     config: SessionAPIConfig<SyncParams> = {},
-    options: Partial<Omit<SessionAPIOptions, 'syncCallback'>> = {},
+    options: Partial<SessionAPIOptions> = {},
   ) {
     super(config, {
       defaultSyncIntervalMinutes: false,
       transport: new HttpClient({ baseURL: BASE_URL, timeout: 0 }),
-      syncCallback: async () => this.autoSync(),
       ...options,
     })
   }
 
   public applyNoCredentials(): void {
     this.applyCredentials()
-  }
-
-  public async autoSync(): Promise<string[]> {
-    this.seen.push('autoSync')
-    await Promise.resolve()
-    if (this.autoSyncError !== undefined) {
-      throw this.autoSyncError
-    }
-    return this.fetchMutable()
   }
 
   public async bestEffortCycle(error: Error): Promise<string[]> {
@@ -419,12 +409,17 @@ class Harness extends SessionAPI<SyncParams> {
 
   // Failures are LOGGED AND SWALLOWED by contract: the probe runs on
   // the boot path, where a network blip must degrade to "not
-  // authenticated yet", never to a rejected `create()`.
+  // authenticated yet", never to a rejected `create()`. The auto-timer
+  // drives this same hook (2.0.0); `autoSyncError` makes a tick throw so
+  // the suite can watch the manager's own failure line.
   protected async syncRegistry(): Promise<void> {
     this.seen.push('syncRegistry')
     await (this.syncRegistryGate ?? Promise.resolve())
     if (this.wireError !== undefined) {
       this.logger.error('Failed to fetch devices:', this.wireError)
+    }
+    if (this.autoSyncError !== undefined) {
+      throw this.autoSyncError
     }
   }
 }
@@ -536,7 +531,7 @@ describe(SessionAPI, () => {
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
       vi.useRealTimers()
 
-      expect(harness.seen).toContain('autoSync')
+      expect(harness.seen).toContain('syncRegistry')
     })
   })
 
@@ -2415,19 +2410,19 @@ describe(SessionAPI, () => {
       const write = harness.callRequest('post', '/devices')
       await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
 
-      expect(harness.seen).not.toContain('autoSync')
+      expect(harness.seen).not.toContain('syncRegistry')
 
       gate.resolve(undefined)
       await write
       await vi.advanceTimersByTimeAsync(SETTLE_MS - 1)
 
-      expect(harness.seen).not.toContain('autoSync')
+      expect(harness.seen).not.toContain('syncRegistry')
 
       await vi.advanceTimersByTimeAsync(1)
       vi.useRealTimers()
       harness[Symbol.dispose]()
 
-      expect(harness.seen).toContain('autoSync')
+      expect(harness.seen).toContain('syncRegistry')
     })
 
     // The heartbeat's own traffic is reads: a read holding the tick
@@ -2442,7 +2437,7 @@ describe(SessionAPI, () => {
       const read = harness.callRequest('get', '/devices')
       await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
 
-      expect(harness.seen).toContain('autoSync')
+      expect(harness.seen).toContain('syncRegistry')
 
       gate.resolve(undefined)
       await read
@@ -2462,13 +2457,13 @@ describe(SessionAPI, () => {
       await harness.callRequest('post', '/devices')
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - 10 * MS_PER_SECOND - 1)
 
-      expect(harness.seen).not.toContain('autoSync')
+      expect(harness.seen).not.toContain('syncRegistry')
 
       await vi.advanceTimersByTimeAsync(1)
       vi.useRealTimers()
       harness[Symbol.dispose]()
 
-      expect(harness.seen).toContain('autoSync')
+      expect(harness.seen).toContain('syncRegistry')
     })
   })
 
@@ -2653,7 +2648,7 @@ describe(SessionAPI, () => {
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
       vi.useRealTimers()
 
-      expect(harness.seen).not.toContain('autoSync')
+      expect(harness.seen).not.toContain('syncRegistry')
     })
 
     it('releases the retry-guard window', async () => {

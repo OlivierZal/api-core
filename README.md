@@ -123,7 +123,6 @@ class MyAPI extends SessionAPI<MySyncParams> {
       // against the class that seats your redaction vocabulary.
       transport: buildTransport(config.transport),
       defaultSyncIntervalMinutes: 5,
-      syncCallback: async () => this.fetch(),
       // Omit `rateLimitHours` for a wire that has never sent a 429;
       // omit `logLabel` when one client per host needs no prefix.
       authFailureStatuses: [HttpStatus.Unauthorized, HttpStatus.BadRequest],
