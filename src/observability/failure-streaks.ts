@@ -38,11 +38,6 @@ export const failureReason = (error: unknown): string => {
 }
 
 interface Streak {
-  /**
-   * Consecutive failures with the current `reason` — what the reminder
-   * window is measured against.
-   */
-  readonly failures: number
   readonly reason: string
   readonly remindedAt: number
   /**
@@ -126,17 +121,11 @@ export class FailureStreaks {
       // A new reason restarts the reminder window, never the episode:
       // the recovery line counts an upstream that alternated 500, 404,
       // 500 as the one outage it was.
-      this.#streaks.set(subject, {
-        failures: 1,
-        reason,
-        remindedAt: now,
-        total,
-      })
+      this.#streaks.set(subject, { reason, remindedAt: now, total })
       return true
     }
     const isDue = now - streak.remindedAt >= FAILURE_REMINDER_INTERVAL_MS
     this.#streaks.set(subject, {
-      failures: streak.failures + 1,
       reason,
       remindedAt: isDue ? now : streak.remindedAt,
       total,

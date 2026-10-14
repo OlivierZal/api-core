@@ -13,6 +13,7 @@ import {
   defined,
   mock,
   mockFetchResponse,
+  mockHttpResponse,
   mockTemporalNowInstant,
   mockTemporalNowZoned,
 } from '../../src/testing/index.ts'
@@ -182,6 +183,26 @@ describe(mockFetchResponse, () => {
       expect(response.body).toBeNull()
     },
   )
+})
+
+describe(mockHttpResponse, () => {
+  it('answers the transport envelope with the given body and the defaults', () => {
+    expect(mockHttpResponse({ ok: true })).toStrictEqual({
+      data: { ok: true },
+      headers: {},
+      status: HTTP_OK,
+    })
+  })
+
+  it('carries explicit headers and status through', () => {
+    expect(
+      mockHttpResponse('nope', { 'retry-after': '30' }, HTTP_UNAUTHORIZED),
+    ).toStrictEqual({
+      data: 'nope',
+      headers: { 'retry-after': '30' },
+      status: HTTP_UNAUTHORIZED,
+    })
+  })
 })
 
 describe('httpError factories', () => {

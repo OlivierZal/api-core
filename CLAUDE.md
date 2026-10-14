@@ -938,6 +938,21 @@ is proven here before a consumer inherits it. Adoption is the SDKs'
 `createMockAdapter`, `mockResponse`) and imports the rest from the
 subpath.
 
+**1.13.0 (2026-10-14): `mockHttpResponse`, and two twins ended inside the
+package.** The simplification hunt found the transport envelope
+`{ data, headers, status }` copied three times (heatzy-api and
+melcloud-api `tests/helpers.ts` as `mockResponse`, melcloud-api
+`classic-api.test.ts` as `wrap`), each declared "this dialect's own" —
+but the spy it answers is `MockInstance<HttpClient['request']>`, typed on
+this package's `HttpResponse<T>`, so the shape is the mechanism's;
+`mockHttpResponse` is the one copy and the SDKs delete theirs at the pin
+bump. In the same release: `events-emitter.test.ts` imports `createLogger`
+from the subpath instead of the last local twin; `pluralize` lives once
+in `src/observability/pluralize.ts` (the rate-limit gate re-spelled the
+count in front of a noun-only twin at three sites); and `Streak.failures`
+is gone — written on every failure, read by nothing, since the reminder
+window is a TIME window on `remindedAt` by this class's own design.
+
 ## Governance files
 
 `SECURITY.md` and `CONTRIBUTING.md` exist because this package is a

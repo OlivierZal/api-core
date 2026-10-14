@@ -26,6 +26,7 @@ import {
   createAPICallErrorData,
   LifecycleEmitter,
 } from '../observability/index.ts'
+import { pluralize } from '../observability/pluralize.ts'
 import {
   type ResiliencePolicy,
   AuthRetryPolicy,
@@ -65,9 +66,6 @@ const SYNC_CYCLE_SUBJECT = 'sync-cycle'
 
 const requestSubject = (method: string, url: string): string =>
   `${method} ${url}`
-
-const pluralize = (count: number, noun: string): string =>
-  `${String(count)} ${noun}${count === 1 ? '' : 's'}`
 
 const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 
