@@ -393,20 +393,20 @@ twelve by reading two methods, not
 by grepping for their names. Everything that differed only by DATA
 became a constructor
 option: `SessionAPIOptions` is `{ defaultSyncIntervalMinutes,
-syncCallback, transport, authFailureStatuses?, logLabel?,
-rateLimitHours?, redaction? }`, beside the user-facing `SessionAPIConfig`
+transport, authFailureStatuses?, logLabel?, rateLimitHours?,
+redaction? }`, beside the user-facing `SessionAPIConfig`
 (`abortSignal`, `events`, `logger`, `settingManager`,
 `syncIntervalMinutes`), generic in the consumer's sync-params shape.
 
-**Parked for 2.0.0 (verified 2026-10-14)**: `syncCallback` leaves
-`SessionAPIOptions` and the auto-timer seats on the `syncRegistry()`
-hook the class already declares. Both SDKs pass `async () =>
-this.fetch()` for the option and call the same `fetch()` from the hook
-— one body wired twice, which melcloud-api's `base.ts` now says in a
-comment. Zero runtime change (the timer's `fireAndForget` discards the
-value either way), one line less per SDK, but a required member of a
-published options type goes, so it rides the next major rather than
-paying one on its own.
+**2.0.0 (2026-10-14): the auto-timer drives `syncRegistry()`**, the
+one registry hook a subclass declares; the `syncCallback` option that
+restated it is gone. Both SDKs passed `async () => this.fetch()` for
+the option and called the same `fetch()` from the hook — one body wired
+twice. Zero runtime change (the timer's `fireAndForget` discards the
+value either way); a consumer deletes one line from its `super(...)`
+options. The suite drives a failing tick through the harness's
+`syncRegistry` (`autoSyncError`), and the sync-manager suite still pins
+the raw failure line.
 
 **Since 1.3.0 the seam also offers one protected TEMPLATE helper,
 `toAuthFailure(error, message)`.** Both SDKs carried the sign-in

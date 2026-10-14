@@ -203,10 +203,6 @@ export interface SessionAPIOptions {
    * degrades to generic-carrier coverage, never to zero coverage.
    */
   readonly redaction?: Redaction | undefined
-  /**
-   * Sync runner the auto-timer drives.
-   */
-  readonly syncCallback: () => Promise<unknown>
 }
 
 /**
@@ -368,7 +364,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @param root1.logLabel - Optional label prefixed to every log line.
    * @param root1.rateLimitHours - Rate-limit window; omit to build no gate.
    * @param root1.redaction - Redaction engine for the emitted log lines; defaults to the base vocabulary.
-   * @param root1.syncCallback - Sync runner the auto-timer drives.
    * @param root1.transport - The already-built HTTP transport.
    */
   protected constructor(
@@ -385,7 +380,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       logLabel,
       rateLimitHours,
       redaction = baseRedaction,
-      syncCallback,
       transport,
     }: SessionAPIOptions,
   ) {
@@ -407,8 +401,11 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     // The labelled logger, like every other seat: a host running two
     // labelled clients must see which one a diagnostic report's
     // auto-sync line came from (see CLAUDE.md, reconciliation 2).
+    // The auto-timer runs the same best-effort refresh as the reuse
+    // probe: `syncRegistry()`, the one registry hook a subclass declares
+    // (2.0.0 — until then a `syncCallback` option restated it).
     this.#syncManager = new SyncManager(
-      syncCallback,
+      async () => this.syncRegistry(),
       this.logger,
       syncIntervalMinutes ?? defaultSyncIntervalMinutes,
     )
