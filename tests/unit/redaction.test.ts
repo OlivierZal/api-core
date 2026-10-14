@@ -7,11 +7,13 @@ import {
   REDACTED,
 } from '../../src/observability/redaction.ts'
 
-const asString = (value: unknown): string => {
+// Every reader of a redacted form-encoded body parses it, so the helper
+// hands back the parsed params rather than the string each caller wrapped.
+const asParams = (value: unknown): URLSearchParams => {
   if (typeof value !== 'string') {
     throw new TypeError('expected a string')
   }
-  return value
+  return new URLSearchParams(value)
 }
 
 describe.concurrent(createRedaction, () => {
@@ -128,11 +130,9 @@ describe.concurrent(createRedaction, () => {
   })
 
   it('redacts sensitive keys inside form-encoded string bodies', () => {
-    const params = new URLSearchParams(
-      asString(
-        baseRedaction.redactValue(
-          'csrf=tok&password=s3cret&username=user%40example.com&extra=visible',
-        ),
+    const params = asParams(
+      baseRedaction.redactValue(
+        'csrf=tok&password=s3cret&username=user%40example.com&extra=visible',
       ),
     )
 
@@ -146,10 +146,8 @@ describe.concurrent(createRedaction, () => {
     // `URLSearchParams.set()` collapses duplicate entries while the
     // key iterator is live; the redaction loop snapshots keys first so
     // pairs after a duplicated sensitive key are never skipped.
-    const params = new URLSearchParams(
-      asString(
-        baseRedaction.redactValue('password=one&password=two&after=kept'),
-      ),
+    const params = asParams(
+      baseRedaction.redactValue('password=one&password=two&after=kept'),
     )
 
     expect(params.getAll('password')).toStrictEqual([REDACTED])
