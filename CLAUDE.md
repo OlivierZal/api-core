@@ -398,6 +398,16 @@ rateLimitHours?, redaction? }`, beside the user-facing `SessionAPIConfig`
 (`abortSignal`, `events`, `logger`, `settingManager`,
 `syncIntervalMinutes`), generic in the consumer's sync-params shape.
 
+**Parked for 2.0.0 (verified 2026-10-14)**: `syncCallback` leaves
+`SessionAPIOptions` and the auto-timer seats on the `syncRegistry()`
+hook the class already declares. Both SDKs pass `async () =>
+this.fetch()` for the option and call the same `fetch()` from the hook
+— one body wired twice, which melcloud-api's `base.ts` now says in a
+comment. Zero runtime change (the timer's `fireAndForget` discards the
+value either way), one line less per SDK, but a required member of a
+published options type goes, so it rides the next major rather than
+paying one on its own.
+
 **Since 1.3.0 the seam also offers one protected TEMPLATE helper,
 `toAuthFailure(error, message)`.** Both SDKs carried the sign-in
 normalization as module-level twins differing only by data —
