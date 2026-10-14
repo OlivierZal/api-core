@@ -67,10 +67,7 @@ export class AuthRetryPolicy implements ResiliencePolicy {
     try {
       return await attempt()
     } catch (error) {
-      if (!this.#shouldRetry(error)) {
-        throw error
-      }
-      if (!(await this.#reauthenticate())) {
+      if (!this.#shouldRetry(error) || !(await this.#reauthenticate())) {
         throw error
       }
       return attempt()
