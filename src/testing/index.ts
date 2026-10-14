@@ -230,6 +230,23 @@ export const mockFetchResponse = (
 }
 
 /**
+ * The transport envelope a mocked `HttpClient.request` resolves with:
+ * `{ data, headers, status }`, the core's `HttpResponse<T>`. One helper
+ * for every suite that spies on the transport — the two SDKs and one
+ * of this package's own suites each kept a byte-identical copy.
+ * @param data - The parsed body the transport would return.
+ * @param headers - Response headers (defaults to none).
+ * @param status - Response status (defaults to 200).
+ * @returns The envelope, typed as the transport's own.
+ * @category Testing
+ */
+export const mockHttpResponse = <T>(
+  data: T,
+  headers: Record<string, string | string[]> = {},
+  status: number = HTTP_OK,
+): HttpResponse<T> => ({ data, headers, status })
+
+/**
  * An {@link HttpError} carrying a minimal request snapshot and an empty
  * response body — the shape the resilience policies and the session
  * mechanism branch on.

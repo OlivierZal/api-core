@@ -1,3 +1,4 @@
+import { pluralize } from '../observability/pluralize.ts'
 import { Temporal } from '../temporal.ts'
 
 /**
@@ -11,9 +12,6 @@ export interface RateLimitDurationLike {
   readonly minutes?: number
   readonly seconds?: number
 }
-
-const pluralize = (count: number, unit: string): string =>
-  count === 1 ? unit : `${unit}s`
 
 const parseDeltaSeconds = (seconds: number): Temporal.Duration | null =>
   Number.isFinite(seconds) && seconds > 0
@@ -77,11 +75,11 @@ export const formatDurationHuman = (duration: Temporal.Duration): string => {
     smallestUnit: 'seconds',
   })
   if (minutes === 0) {
-    return `${String(seconds)} ${pluralize(seconds, 'second')}`
+    return pluralize(seconds, 'second')
   }
   return seconds === 0
-    ? `${String(minutes)} ${pluralize(minutes, 'minute')}`
-    : `${String(minutes)} ${pluralize(minutes, 'minute')}, ${String(seconds)} ${pluralize(seconds, 'second')}`
+    ? pluralize(minutes, 'minute')
+    : `${pluralize(minutes, 'minute')}, ${pluralize(seconds, 'second')}`
 }
 
 /**

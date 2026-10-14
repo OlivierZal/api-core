@@ -1,12 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { LifecycleEvents, Logger } from '../../src/api/index.ts'
+import type { LifecycleEvents } from '../../src/api/index.ts'
 import { LifecycleEmitter } from '../../src/observability/events-emitter.ts'
-
-const createLogger = (): Logger => ({
-  error: vi.fn<(...data: unknown[]) => void>(),
-  log: vi.fn<(...data: unknown[]) => void>(),
-})
+import { createLogger } from '../../src/testing/index.ts'
 
 const context = { correlationId: 'corr-1', method: 'GET', url: '/test' }
 
