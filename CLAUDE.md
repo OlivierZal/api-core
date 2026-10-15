@@ -836,7 +836,11 @@ family AS THE SDKs' AUDIT SWEEPS LEAVE THEM (heatzy-api #1240 makes
 the last importers of `APICallLogData` and `LoggableRequestConfig`) —
 the two SDKs are the only repos that pin the package (both at 1.2.0);
 the apps reach it through them, and the `fireAndForget` they import
-comes from `@olivierzal/homey-kit`, not from here. The root barrel
+comes from `@olivierzal/homey-kit`, not from here. That copy is
+deliberate, not a leftover: the kit declares no dependency and this
+package will not depend on a Homey kit, so `src/fire-and-forget.ts` and
+its `Logger` seam live twice, verbatim, and change together (verified
+2026-10-15, the family's directive audit). The root barrel
 exports 73 names, 47 values and 26 types — re-counted 2026-10-09:
 1.3.0 added `ValidationError` and `syncDevices` (both re-exported by
 both SDKs), #39 added `FailureStreaks` (imported by both SDKs' code),
