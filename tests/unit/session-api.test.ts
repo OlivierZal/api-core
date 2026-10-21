@@ -20,7 +20,11 @@ import {
   AuthenticationThrottledError,
   RegistrySyncError,
 } from '../../src/errors/index.ts'
-import { HttpClient, HttpError } from '../../src/http/index.ts'
+import {
+  type HttpResponse,
+  HttpClient,
+  HttpError,
+} from '../../src/http/index.ts'
 import { FAILURE_REMINDER_INTERVAL_MS } from '../../src/observability/failure-streaks.ts'
 import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
@@ -181,6 +185,10 @@ class Harness extends SessionAPI<SyncParams> {
 
   public autoSyncError?: Error | undefined
 
+  // Every config that crossed the transport boundary, so a suite can
+  // prove what never did.
+  public readonly dispatched: Record<string, unknown>[] = []
+
   public enforceError?: Error | undefined
 
   public enforceGate?: Promise<void> | undefined
@@ -340,6 +348,15 @@ class Harness extends SessionAPI<SyncParams> {
   protected clearRegistry(): void {
     this.seen.push('clearRegistry')
     this.registry.length = 0
+  }
+
+  protected override async dispatch<T = unknown>(
+    method: string,
+    url: string,
+    config: Record<string, unknown> = {},
+  ): Promise<HttpResponse<T>> {
+    this.dispatched.push(config)
+    return super.dispatch<T>(method, url, config)
   }
 
   protected async doAuthenticate(credentials: LoginCredentials): Promise<void> {
@@ -2388,7 +2405,9 @@ describe(SessionAPI, () => {
 
       expect(onRequestRetry).toHaveBeenCalledTimes(1)
       expect(mockFetch).toHaveBeenCalledTimes(2)
-      expect(JSON.stringify(mockFetch.mock.calls)).not.toContain('idempotent')
+      expect(harness.dispatched).not.toContainEqual(
+        expect.objectContaining({ idempotent: true }),
+      )
     })
 
     it('arms the rate-limit gate on a 429 and then refuses fast', async () => {
@@ -2462,6 +2481,25 @@ describe(SessionAPI, () => {
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
       const gate = gateFetch()
       const read = harness.callRequest('get', '/devices')
+      await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
+
+      expect(harness.seen).toContain('syncRegistry')
+
+      gate.resolve(undefined)
+      await read
+      vi.useRealTimers()
+      harness[Symbol.dispose]()
+    })
+
+    // The other half of a read over POST: it holds nothing either.
+    it('holds nothing for a POST declared idempotent', async () => {
+      const harness = new Harness({ syncIntervalMinutes: 1 })
+      vi.useFakeTimers(fakeClocks)
+      seedSession(harness)
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
+      const gate = gateFetch()
+      const read = harness.callRequest('post', '/report', { idempotent: true })
       await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
 
       expect(harness.seen).toContain('syncRegistry')
