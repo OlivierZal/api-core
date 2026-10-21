@@ -20,7 +20,11 @@ import {
   AuthenticationThrottledError,
   RegistrySyncError,
 } from '../../src/errors/index.ts'
-import { HttpClient, HttpError } from '../../src/http/index.ts'
+import {
+  type HttpResponse,
+  HttpClient,
+  HttpError,
+} from '../../src/http/index.ts'
 import { FAILURE_REMINDER_INTERVAL_MS } from '../../src/observability/failure-streaks.ts'
 import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
@@ -73,6 +77,9 @@ const HTTP_TOO_MANY_REQUESTS = 429
 const HTTP_NOT_FOUND = 404
 
 const HTTP_SERVER_ERROR = 500
+// A 5xx outside the read-retry set (500/502/503/504): one response is
+// the whole exchange of a GET, which these suites count on.
+const HTTP_NOT_IMPLEMENTED = 501
 const HTTP_BAD_GATEWAY = 502
 
 // An SDK-style credential key and its value, standing in for the
@@ -177,6 +184,10 @@ class Harness extends SessionAPI<SyncParams> {
   public authGate?: Promise<void> | undefined
 
   public autoSyncError?: Error | undefined
+
+  // Every config that crossed the transport boundary, so a suite can
+  // prove what never did.
+  public readonly dispatched: Record<string, unknown>[] = []
 
   public enforceError?: Error | undefined
 
@@ -337,6 +348,15 @@ class Harness extends SessionAPI<SyncParams> {
   protected clearRegistry(): void {
     this.seen.push('clearRegistry')
     this.registry.length = 0
+  }
+
+  protected override async dispatch<T = unknown>(
+    method: string,
+    url: string,
+    config: Record<string, unknown> = {},
+  ): Promise<HttpResponse<T>> {
+    this.dispatched.push(config)
+    return super.dispatch<T>(method, url, config)
   }
 
   protected async doAuthenticate(credentials: LoginCredentials): Promise<void> {
@@ -1967,12 +1987,12 @@ describe(SessionAPI, () => {
         mockFetchResponse(
           { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
           {},
-          HTTP_SERVER_ERROR,
+          HTTP_NOT_IMPLEMENTED,
         ),
       )
 
       await expect(harness.callRequest('get', '/context')).rejects.toThrow(
-        'Request failed with status code 500',
+        'Request failed with status code 501',
       )
 
       const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
@@ -2150,18 +2170,18 @@ describe(SessionAPI, () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
       const url = '/devices?token=base-secret'
-      respondWith(HTTP_SERVER_ERROR)
+      respondWith(HTTP_NOT_IMPLEMENTED)
 
       await expect(harness.callRequest('get', url)).rejects.toThrow(
-        'status code 500',
+        'status code 501',
       )
 
       respondWith(HTTP_OK)
       await harness.callRequest('get', url)
-      respondWith(HTTP_SERVER_ERROR)
+      respondWith(HTTP_NOT_IMPLEMENTED)
 
       await expect(harness.callRequest('get', url)).rejects.toThrow(
-        'status code 500',
+        'status code 501',
       )
 
       const recovery = loggedLines(logger).filter((line) =>
@@ -2364,6 +2384,32 @@ describe(SessionAPI, () => {
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
 
+    // Some wires serve their reports over POST: a POST the caller
+    // declares idempotent is a read, retried like a GET, and the flag
+    // itself never reaches the transport.
+    it('retries a transient POST the caller declared idempotent', async () => {
+      const onRequestRetry = vi.fn<() => void>()
+      using harness = new Harness({ events: { onRequestRetry } })
+      vi.useFakeTimers()
+      respondWith(HTTP_BAD_GATEWAY)
+      respondWith(HTTP_OK)
+
+      const pending = harness.callRequest('post', '/report', {
+        idempotent: true,
+      })
+      await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS)
+
+      await expect(pending).resolves.toBe(HTTP_OK)
+
+      vi.useRealTimers()
+
+      expect(onRequestRetry).toHaveBeenCalledTimes(1)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(harness.dispatched).not.toContainEqual(
+        expect.objectContaining({ idempotent: true }),
+      )
+    })
+
     it('arms the rate-limit gate on a 429 and then refuses fast', async () => {
       using harness = new Harness({}, { rateLimitHours: RATE_LIMIT_HOURS })
       respondWith(HTTP_TOO_MANY_REQUESTS)
@@ -2435,6 +2481,25 @@ describe(SessionAPI, () => {
       await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
       const gate = gateFetch()
       const read = harness.callRequest('get', '/devices')
+      await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
+
+      expect(harness.seen).toContain('syncRegistry')
+
+      gate.resolve(undefined)
+      await read
+      vi.useRealTimers()
+      harness[Symbol.dispose]()
+    })
+
+    // The other half of a read over POST: it holds nothing either.
+    it('holds nothing for a POST declared idempotent', async () => {
+      const harness = new Harness({ syncIntervalMinutes: 1 })
+      vi.useFakeTimers(fakeClocks)
+      seedSession(harness)
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE - MS_PER_SECOND)
+      const gate = gateFetch()
+      const read = harness.callRequest('post', '/report', { idempotent: true })
       await vi.advanceTimersByTimeAsync(2 * MS_PER_SECOND)
 
       expect(harness.seen).toContain('syncRegistry')

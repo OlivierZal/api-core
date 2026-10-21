@@ -19,11 +19,11 @@ const httpError = (status?: number): unknown =>
       })
 
 describe(isTransientServerError, () => {
-  it.each([502, 503, 504])('returns true for HTTP %i', (status) => {
+  it.each([500, 502, 503, 504])('returns true for HTTP %i', (status) => {
     expect(isTransientServerError(httpError(status))).toBe(true)
   })
 
-  it.each([400, 401, 404, 429, 500, 505])(
+  it.each([400, 401, 404, 429, 501, 505])(
     'returns false for non-transient HTTP %i',
     (status) => {
       expect(isTransientServerError(httpError(status))).toBe(false)
