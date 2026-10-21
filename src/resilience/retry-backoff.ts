@@ -17,11 +17,14 @@ const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.ServiceUnavailable,
 ])
 
-// Walk the `Error.cause` chain to find a nested HttpError. Guards against
-// cycles via a visited set. Used by `isTransientServerError` so that
-// wrapped errors (rethrown with the original error attached as
-// `new Error(msg, { cause: httpError })`) are still correctly classified.
-const findHttpError = (error: unknown): HttpError | undefined => {
+// Walk the `Error.cause` chain for the first link the picker accepts,
+// cycle-guarded through a visited set, so an error rethrown with the
+// original attached (`new Error(msg, { cause })`) is still classified
+// by what it wraps.
+const findInCauseChain = <T>(
+  error: unknown,
+  pick: (candidate: object) => T | undefined,
+): T | undefined => {
   const visited = new Set<object>()
   let current: unknown = error
   while (
@@ -29,8 +32,9 @@ const findHttpError = (error: unknown): HttpError | undefined => {
     current !== null &&
     !visited.has(current)
   ) {
-    if (isHttpError(current)) {
-      return current
+    const picked = pick(current)
+    if (picked !== undefined) {
+      return picked
     }
     visited.add(current)
     const { cause } = current as { cause?: unknown }
@@ -38,6 +42,11 @@ const findHttpError = (error: unknown): HttpError | undefined => {
   }
   return undefined
 }
+
+const findHttpError = (error: unknown): HttpError | undefined =>
+  findInCauseChain(error, (candidate) =>
+    isHttpError(candidate) ? candidate : undefined,
+  )
 
 /**
  * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
@@ -51,6 +60,44 @@ export const isTransientServerError = (error: unknown): boolean => {
   const status = httpError?.response.status
   return typeof status === 'number' && TRANSIENT_STATUSES.has(status)
 }
+
+// Node's fetch (undici) reports every network-level failure — DNS, a
+// connect timeout, a reset, TLS — as `TypeError: fetch failed` with
+// the detail on `cause`; the client's own budget fires as a
+// `DOMException` named `TimeoutError`. A caller's abort is an
+// `AbortError` and stays out: cancelling is not a transient condition.
+const isNetworkFailure = (candidate: unknown): boolean =>
+  (candidate instanceof TypeError && candidate.message === 'fetch failed') ||
+  (candidate instanceof DOMException && candidate.name === 'TimeoutError')
+
+/**
+ * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
+ * `true` when the transport could not complete the exchange — Node's
+ * `TypeError: fetch failed` (DNS, connect timeout, reset, TLS) or the
+ * client's own timeout (`DOMException` named `TimeoutError`) — including
+ * errors wrapped via `Error.cause`. A caller's abort (`AbortError`) and
+ * every HTTP response return `false`. Measured on a Homey (2026-10-22,
+ * 01:05): a burst of 23 report reads drew 14 connect timeouts and 9
+ * request timeouts while the same burst from a second host passed
+ * thirty seconds later — exactly what a retry with backoff recovers.
+ * @param error - The rejection reason thrown by an HTTP call.
+ * @returns Whether the error represents a transient network failure.
+ */
+export const isTransientNetworkFailure = (error: unknown): boolean =>
+  findInCauseChain(error, (candidate) =>
+    isNetworkFailure(candidate) ? candidate : undefined,
+  ) !== undefined
+
+/**
+ * The transient set a read is retried on: a transient HTTP status
+ * ({@link isTransientServerError}) or a network failure
+ * ({@link isTransientNetworkFailure}). Only ever applied to idempotent
+ * reads, where re-sending is safe whatever stage the exchange died at.
+ * @param error - The rejection reason thrown by an HTTP call.
+ * @returns Whether a retry can plausibly succeed.
+ */
+export const isTransientFailure = (error: unknown): boolean =>
+  isTransientServerError(error) || isTransientNetworkFailure(error)
 
 /**
  * Default transient-retry budget shared by every consuming client.

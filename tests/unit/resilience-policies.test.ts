@@ -191,14 +191,19 @@ describe(AuthRetryPolicy, () => {
 })
 
 describe(TransientRetryPolicy, () => {
-  it('retries on a transient 503 and succeeds', async () => {
+  // The two transient classes the policy retries: a server status and a
+  // transport failure that never produced one.
+  it.each([
+    ['a transient 503', createServerError(503, '/x')],
+    ['a network failure', new TypeError('fetch failed')],
+  ])('retries %s and succeeds', async (_name, rejection) => {
     vi.useFakeTimers()
     const onRetry =
       vi.fn<(retryAttempt: number, error: unknown, delayMs: number) => void>()
     const policy = new TransientRetryPolicy({ onRetry })
     const attempt = vi
       .fn<() => Promise<string>>()
-      .mockRejectedValueOnce(createServerError(503, '/x'))
+      .mockRejectedValueOnce(rejection)
       .mockResolvedValueOnce('ok')
 
     const promise = policy.run(attempt)
