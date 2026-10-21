@@ -27,7 +27,7 @@ const config: Config[] = defineConfig([
         filter: {
           match: true,
           regex:
-            '^(BadGateway|BadRequest|GatewayTimeout|NotFound|ServiceUnavailable|TooManyRequests|Unauthorized)$',
+            '^(BadGateway|BadRequest|GatewayTimeout|InternalServerError|NotFound|ServiceUnavailable|TooManyRequests|Unauthorized)$',
         },
         format: ['PascalCase'],
         selector: 'objectLiteralProperty',

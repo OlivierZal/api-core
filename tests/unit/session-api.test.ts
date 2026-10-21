@@ -73,6 +73,9 @@ const HTTP_TOO_MANY_REQUESTS = 429
 const HTTP_NOT_FOUND = 404
 
 const HTTP_SERVER_ERROR = 500
+// A 5xx outside the read-retry set (500/502/503/504): one response is
+// the whole exchange of a GET, which these suites count on.
+const HTTP_NOT_IMPLEMENTED = 501
 const HTTP_BAD_GATEWAY = 502
 
 // An SDK-style credential key and its value, standing in for the
@@ -1967,12 +1970,12 @@ describe(SessionAPI, () => {
         mockFetchResponse(
           { [DISPLAY_NAME_KEY]: DISPLAY_NAME, id: 'unit-1' },
           {},
-          HTTP_SERVER_ERROR,
+          HTTP_NOT_IMPLEMENTED,
         ),
       )
 
       await expect(harness.callRequest('get', '/context')).rejects.toThrow(
-        'Request failed with status code 500',
+        'Request failed with status code 501',
       )
 
       const errorLine = String(vi.mocked(logger.error).mock.lastCall?.[0])
@@ -2150,18 +2153,18 @@ describe(SessionAPI, () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
       const url = '/devices?token=base-secret'
-      respondWith(HTTP_SERVER_ERROR)
+      respondWith(HTTP_NOT_IMPLEMENTED)
 
       await expect(harness.callRequest('get', url)).rejects.toThrow(
-        'status code 500',
+        'status code 501',
       )
 
       respondWith(HTTP_OK)
       await harness.callRequest('get', url)
-      respondWith(HTTP_SERVER_ERROR)
+      respondWith(HTTP_NOT_IMPLEMENTED)
 
       await expect(harness.callRequest('get', url)).rejects.toThrow(
-        'status code 500',
+        'status code 501',
       )
 
       const recovery = loggedLines(logger).filter((line) =>
@@ -2362,6 +2365,30 @@ describe(SessionAPI, () => {
       )
 
       expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    // Some wires serve their reports over POST: a POST the caller
+    // declares idempotent is a read, retried like a GET, and the flag
+    // itself never reaches the transport.
+    it('retries a transient POST the caller declared idempotent', async () => {
+      const onRequestRetry = vi.fn<() => void>()
+      using harness = new Harness({ events: { onRequestRetry } })
+      vi.useFakeTimers()
+      respondWith(HTTP_BAD_GATEWAY)
+      respondWith(HTTP_OK)
+
+      const pending = harness.callRequest('post', '/report', {
+        idempotent: true,
+      })
+      await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS)
+
+      await expect(pending).resolves.toBe(HTTP_OK)
+
+      vi.useRealTimers()
+
+      expect(onRequestRetry).toHaveBeenCalledTimes(1)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(JSON.stringify(mockFetch.mock.calls)).not.toContain('idempotent')
     })
 
     it('arms the rate-limit gate on a 429 and then refuses fast', async () => {

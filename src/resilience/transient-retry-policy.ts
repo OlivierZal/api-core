@@ -16,8 +16,8 @@ export interface RetryTelemetry {
 }
 
 /**
- * Exponential-backoff retry for transient server-side failures (502,
- * 503, 504 — see {@link isTransientServerError}). Wraps the attempt
+ * Exponential-backoff retry for transient server-side failures (500,
+ * 502, 503, 504 — see {@link isTransientServerError}). Wraps the attempt
  * with {@link withRetryBackoff} using the caller-provided telemetry
  * hook for every retry tick.
  *
@@ -26,8 +26,8 @@ export interface RetryTelemetry {
  * write in disguise. The consuming client gates application of this
  * policy accordingly; the policy itself is neutral about method.
  *
- * Ownership: transient 5xx. Non-transient 5xx (e.g., 500) or any
- * other error propagates untouched on the first failure — no retry.
+ * Ownership: transient 5xx. Any other 5xx (501, 505) or any other
+ * error propagates untouched on the first failure — no retry.
  */
 export class TransientRetryPolicy implements ResiliencePolicy {
   readonly #signal: AbortSignal | undefined

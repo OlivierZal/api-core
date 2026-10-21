@@ -210,15 +210,15 @@ describe(TransientRetryPolicy, () => {
     vi.useRealTimers()
   })
 
-  it('does not retry on non-transient 500', async () => {
+  it('does not retry on non-transient 501', async () => {
     const onRetry =
       vi.fn<(retryAttempt: number, error: unknown, delayMs: number) => void>()
     const policy = new TransientRetryPolicy({ onRetry })
     const attempt = vi
       .fn<() => Promise<string>>()
-      .mockRejectedValue(createServerError(500, '/x'))
+      .mockRejectedValue(createServerError(501, '/x'))
 
-    await expect(policy.run(attempt)).rejects.toThrow('Status 500')
+    await expect(policy.run(attempt)).rejects.toThrow('Status 501')
     expect(attempt).toHaveBeenCalledTimes(1)
     expect(onRetry).not.toHaveBeenCalled()
   })

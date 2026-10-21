@@ -23,6 +23,12 @@ export const HttpStatus = {
    */
   GatewayTimeout: 504,
   /**
+   * HTTP 500 — the upstream's catch-all. Eligible for retry on GET since
+   * 2.1.0: on an idempotent read a 500 that is load recovers on the next
+   * attempt and a 500 that is a bug fails once the budget is spent.
+   */
+  InternalServerError: 500,
+  /**
    * HTTP 404 — the resource does not exist. Some upstreams use it as a
    * routine "nothing to describe" answer, not a failure.
    */

@@ -1,12 +1,19 @@
 import { type HttpError, HttpStatus, isHttpError } from '../http/index.ts'
 
 // HTTP 5xx status codes considered transient (server-side glitches that
-// retrying a short moment later can plausibly recover from). 500 is
-// intentionally excluded: it usually indicates an application bug on the
-// server, not a recoverable condition.
+// retrying a short moment later can plausibly recover from). 500 is in
+// the set since 2.1.0: the policy only ever wraps an idempotent read, and
+// the field shows a 500 that is load, not a bug — MELCloud Home answers
+// an empty-bodied 500 to a few of the sixteen telemetry reads the Homey
+// app fires in the same second at every hour's fifth minute, while the
+// same read succeeds for the next device and the next hour (measured
+// 2026-10-21, 15:05 CEST, four of sixteen). Retrying a 500 on a read is
+// also the default of got, axios-retry and Polly; a deterministic 500
+// costs this budget's delays once, then fails as before.
 const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.BadGateway,
   HttpStatus.GatewayTimeout,
+  HttpStatus.InternalServerError,
   HttpStatus.ServiceUnavailable,
 ])
 
@@ -34,7 +41,7 @@ const findHttpError = (error: unknown): HttpError | undefined => {
 
 /**
  * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
- * `true` for transient HTTP 5xx status codes (502 / 503 / 504) including
+ * `true` for transient HTTP 5xx status codes (500 / 502 / 503 / 504) including
  * errors wrapped via `Error.cause`. All other inputs return `false`.
  * @param error - The rejection reason thrown by an HTTP call.
  * @returns Whether the error represents a transient server failure.

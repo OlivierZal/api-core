@@ -840,21 +840,35 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     }
   }
 
+  /**
+   * Runs one request through the session gate and the resilience
+   * pipeline. `config.idempotent` declares a POST that READS — some
+   * wires serve their reports over POST — so it is treated as a GET:
+   * retried on a transient failure, and holding no sync tick. The
+   * flag is consumed here and never reaches the transport.
+   * @template T - Type of the parsed response body.
+   * @param method - HTTP method.
+   * @param url - Request URL, relative to the base URL.
+   * @param config - Transport config, plus the optional `idempotent`.
+   * @returns The HTTP response.
+   */
   protected async request<T = unknown>(
     method: string,
     url: string,
     config: Record<string, unknown> = {},
   ): Promise<HttpResponse<T>> {
     await this.ensureSession()
+    const { idempotent = false, ...requestConfig } = config
     const context = {
       correlationId: randomUUID(),
       method: method.toUpperCase(),
       url,
     }
-    const policy = this.#buildPolicy(context)
+    const isRead = context.method === 'GET' || idempotent === true
+    const policy = this.#buildPolicy(context, isRead)
     const attempt = async (): Promise<HttpResponse<T>> => {
       try {
-        const response = await this.dispatch<T>(method, url, config)
+        const response = await this.dispatch<T>(method, url, requestConfig)
         this.#closeRequestStreak(context.method, url)
         return response
       } catch (error) {
@@ -873,20 +887,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         throw error
       }
     }
-    // A mutation parks the auto-sync tick for its duration and for the
-    // settle window after it: a refresh overlapping the write reads the
-    // pre-write state back into the registry, and one that follows it
-    // too closely reads a device that has not applied it yet. Reads
-    // hold nothing — the heartbeat's own traffic must not defer itself.
-    if (context.method === 'GET') {
-      return this.#runWithEvents(context, async () => policy.run(attempt))
-    }
-    this.#syncManager.hold()
-    try {
-      return await this.#runWithEvents(context, async () => policy.run(attempt))
-    } finally {
-      this.#syncManager.release(SYNC_SETTLE_MS)
-    }
+    const run = async (): Promise<HttpResponse<T>> =>
+      this.#runWithEvents(context, async () => policy.run(attempt))
+    return isRead ? run() : this.#holdingSync(run)
   }
 
   /**
@@ -1047,22 +1050,25 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * policies see the attempt first: the optional rate-limit rung
    * guards the entry point, auth-retry handles credential failures
    * after the inner retries give up, and the optional transient retry
-   * (GET-only) is the innermost wrapper around the raw
+   * (reads only) is the innermost wrapper around the raw
    * {@link dispatch}.
    * @param context - Per-request correlation context used by the
    * transient-retry telemetry when it fires.
    * @param context.correlationId - UUID for cross-emission linkage.
    * @param context.method - HTTP method (uppercased) of the request.
    * @param context.url - URL of the request being dispatched.
+   * @param isRead - Whether a retry would re-send a read: a GET, or a
+   * POST the caller declared idempotent.
    * @returns The composite policy ready to run the attempt.
    */
-  #buildPolicy(context: RequestLifecycleContext): ResiliencePolicy {
+  #buildPolicy(
+    context: RequestLifecycleContext,
+    isRead: boolean,
+  ): ResiliencePolicy {
     const policies: ResiliencePolicy[] = [
       ...(this.#rateLimitPolicy === undefined ? [] : [this.#rateLimitPolicy]),
       this.#authRetryPolicy,
-      ...(context.method === 'GET'
-        ? [this.#transientRetryPolicy(context)]
-        : []),
+      ...(isRead ? [this.#transientRetryPolicy(context)] : []),
     ]
     return new CompositePolicy(policies)
   }
@@ -1169,6 +1175,20 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return (
       this.hasPersistedSession() || this.#resolvePersistedCredentials() !== null
     )
+  }
+
+  // A mutation parks the auto-sync tick for its duration and for the
+  // settle window after it: a refresh overlapping the write reads the
+  // pre-write state back into the registry, and one that follows it
+  // too closely reads a device that has not applied it yet. Reads
+  // hold nothing — the heartbeat's own traffic must not defer itself.
+  async #holdingSync<T>(work: () => Promise<T>): Promise<T> {
+    this.#syncManager.hold()
+    try {
+      return await work()
+    } finally {
+      this.#syncManager.release(SYNC_SETTLE_MS)
+    }
   }
 
   // A corrupt persisted value reads as "no pause" — never lock the
