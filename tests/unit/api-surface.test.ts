@@ -54,6 +54,8 @@ const EXPECTED = [
   'isAPIError',
   'isHttpError',
   'isSessionExpired',
+  'isTransientFailure',
+  'isTransientNetworkFailure',
   'isTransientServerError',
   'readHeaders',
   'setting',

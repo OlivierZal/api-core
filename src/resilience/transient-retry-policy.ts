@@ -1,7 +1,7 @@
 import type { ResiliencePolicy } from './policy.ts'
 import {
   DEFAULT_TRANSIENT_RETRY_OPTIONS,
-  isTransientServerError,
+  isTransientFailure,
   withRetryBackoff,
 } from './retry-backoff.ts'
 
@@ -16,8 +16,8 @@ export interface RetryTelemetry {
 }
 
 /**
- * Exponential-backoff retry for transient server-side failures (500,
- * 502, 503, 504 — see {@link isTransientServerError}). Wraps the attempt
+ * Exponential-backoff retry for transient failures — a 500, 502, 503 or
+ * 504, or a network failure (see {@link isTransientFailure}). Wraps the attempt
  * with {@link withRetryBackoff} using the caller-provided telemetry
  * hook for every retry tick.
  *
@@ -26,8 +26,9 @@ export interface RetryTelemetry {
  * write in disguise. The consuming client gates application of this
  * policy accordingly; the policy itself is neutral about method.
  *
- * Ownership: transient 5xx. Any other 5xx (501, 505) or any other
- * error propagates untouched on the first failure — no retry.
+ * Ownership: transient 5xx and network failures. Any other 5xx (501,
+ * 505), a caller's abort or any other error propagates untouched on the
+ * first failure — no retry.
  */
 export class TransientRetryPolicy implements ResiliencePolicy {
   readonly #signal: AbortSignal | undefined
@@ -52,7 +53,7 @@ export class TransientRetryPolicy implements ResiliencePolicy {
   public async run<T>(attempt: () => Promise<T>): Promise<T> {
     return withRetryBackoff(attempt, {
       ...DEFAULT_TRANSIENT_RETRY_OPTIONS,
-      isRetryable: isTransientServerError,
+      isRetryable: isTransientFailure,
       onRetry: this.#telemetry.onRetry,
       signal: this.#signal,
     })

@@ -18,9 +18,9 @@
  *    - {@link AuthRetryPolicy} (middle): on an auth-failure status,
  *      consume a {@link RetryGuard} token, reauthenticate via the
  *      injected hook, replay exactly once.
- *    - {@link TransientRetryPolicy} (innermost, GET-only): retries
- *      `502/503/504` via {@link withRetryBackoff} with exponential
- *      backoff.
+ *    - {@link TransientRetryPolicy} (innermost, reads only): retries a
+ *      `500/502/503/504` or a network failure via
+ *      {@link withRetryBackoff} with exponential backoff.
  * 3. **`DisposableTimeout`** is orthogonal — a timer primitive used
  *    by `SyncManager` for auto-sync scheduling; it does not
  *    participate in the per-request pipeline.
@@ -41,6 +41,8 @@ export { RateLimitPolicy } from './rate-limit-policy.ts'
 export {
   type RetryBackoffOptions,
   DEFAULT_TRANSIENT_RETRY_OPTIONS,
+  isTransientFailure,
+  isTransientNetworkFailure,
   isTransientServerError,
   withRetryBackoff,
 } from './retry-backoff.ts'

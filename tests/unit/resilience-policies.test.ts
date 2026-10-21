@@ -210,6 +210,25 @@ describe(TransientRetryPolicy, () => {
     vi.useRealTimers()
   })
 
+  it('retries a network failure and succeeds', async () => {
+    const onRetry =
+      vi.fn<(retryAttempt: number, error: unknown, delayMs: number) => void>()
+    const policy = new TransientRetryPolicy({ onRetry })
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce('ok')
+    vi.useFakeTimers()
+
+    const promise = policy.run(attempt)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await expect(promise).resolves.toBe('ok')
+    expect(onRetry).toHaveBeenCalledTimes(1)
+
+    vi.useRealTimers()
+  })
+
   it('does not retry on non-transient 501', async () => {
     const onRetry =
       vi.fn<(retryAttempt: number, error: unknown, delayMs: number) => void>()

@@ -52,6 +52,65 @@ export const isTransientServerError = (error: unknown): boolean => {
   return typeof status === 'number' && TRANSIENT_STATUSES.has(status)
 }
 
+// Walk the `Error.cause` chain for the first error the predicate
+// accepts, cycle-guarded like `findHttpError`.
+const findInChain = (
+  error: unknown,
+  predicate: (candidate: unknown) => boolean,
+): boolean => {
+  const visited = new Set<object>()
+  let current: unknown = error
+  while (
+    typeof current === 'object' &&
+    current !== null &&
+    !visited.has(current)
+  ) {
+    if (predicate(current)) {
+      return true
+    }
+    visited.add(current)
+    const { cause } = current as { cause?: unknown }
+    current = cause
+  }
+  return false
+}
+
+// Node's fetch (undici) reports every network-level failure — DNS, a
+// connect timeout, a reset, TLS — as `TypeError: fetch failed` with
+// the detail on `cause`; the client's own budget fires as a
+// `DOMException` named `TimeoutError`. A caller's abort is an
+// `AbortError` and stays out: cancelling is not a transient condition.
+const isNetworkFailure = (candidate: unknown): boolean =>
+  (candidate instanceof TypeError && candidate.message === 'fetch failed') ||
+  (candidate instanceof DOMException && candidate.name === 'TimeoutError')
+
+/**
+ * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
+ * `true` when the transport could not complete the exchange — Node's
+ * `TypeError: fetch failed` (DNS, connect timeout, reset, TLS) or the
+ * client's own timeout (`DOMException` named `TimeoutError`) — including
+ * errors wrapped via `Error.cause`. A caller's abort (`AbortError`) and
+ * every HTTP response return `false`. Measured on a Homey (2026-10-22,
+ * 01:05): a burst of 23 report reads drew 14 connect timeouts and 9
+ * request timeouts while the same burst from a second host passed
+ * thirty seconds later — exactly what a retry with backoff recovers.
+ * @param error - The rejection reason thrown by an HTTP call.
+ * @returns Whether the error represents a transient network failure.
+ */
+export const isTransientNetworkFailure = (error: unknown): boolean =>
+  findInChain(error, isNetworkFailure)
+
+/**
+ * The transient set a read is retried on: a transient HTTP status
+ * ({@link isTransientServerError}) or a network failure
+ * ({@link isTransientNetworkFailure}). Only ever applied to idempotent
+ * reads, where re-sending is safe whatever stage the exchange died at.
+ * @param error - The rejection reason thrown by an HTTP call.
+ * @returns Whether a retry can plausibly succeed.
+ */
+export const isTransientFailure = (error: unknown): boolean =>
+  isTransientServerError(error) || isTransientNetworkFailure(error)
+
 /**
  * Default transient-retry budget shared by every consuming client.
  * Keeping these in one place prevents drift: if we decide to tune the

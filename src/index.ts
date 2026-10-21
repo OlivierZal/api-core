@@ -85,6 +85,8 @@ export {
   DisposableTimeout,
   formatDurationHuman,
   isSessionExpired,
+  isTransientFailure,
+  isTransientNetworkFailure,
   isTransientServerError,
   RateLimitGate,
   RateLimitPolicy,

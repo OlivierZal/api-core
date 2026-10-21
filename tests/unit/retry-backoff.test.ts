@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { HttpError } from '../../src/http/index.ts'
 import {
+  isTransientFailure,
+  isTransientNetworkFailure,
   isTransientServerError,
   withRetryBackoff,
 } from '../../src/resilience/retry-backoff.ts'
@@ -17,6 +19,49 @@ const httpError = (status?: number): unknown =>
     : new HttpError(`Status ${String(status)}`, {
         response: { data: {}, headers: {}, status },
       })
+
+// The transport's own failures: undici's `fetch failed` wrapper and the
+// client's timeout budget, wherever they sit in a cause chain; a
+// caller's abort is a decision, not a condition to retry.
+describe(isTransientNetworkFailure, () => {
+  it.each([
+    ["undici's fetch failed", new TypeError('fetch failed')],
+    [
+      'the client timeout',
+      new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    ],
+    [
+      'a wrapped fetch failed',
+      new Error('wrapped', { cause: new TypeError('fetch failed') }),
+    ],
+  ])('returns true for %s', (_name, error) => {
+    expect(isTransientNetworkFailure(error)).toBe(true)
+  })
+
+  it.each([
+    ['a caller abort', new DOMException('aborted', 'AbortError')],
+    ['another TypeError', new TypeError('x is not a function')],
+    ['a 503', httpError(503)],
+    ['a plain error', new Error('boom')],
+    ['a string', 'fetch failed'],
+  ])('returns false for %s', (_name, error) => {
+    expect(isTransientNetworkFailure(error)).toBe(false)
+  })
+})
+
+describe(isTransientFailure, () => {
+  it.each([
+    ['a 503', httpError(503), true],
+    ['fetch failed', new TypeError('fetch failed'), true],
+    ['a 501', httpError(501), false],
+    ['a caller abort', new DOMException('aborted', 'AbortError'), false],
+  ])('answers for %s', (_name, error, isTransient) => {
+    expect(isTransientFailure(error)).toBe(isTransient)
+  })
+})
 
 describe(isTransientServerError, () => {
   it.each([500, 502, 503, 504])('returns true for HTTP %i', (status) => {
