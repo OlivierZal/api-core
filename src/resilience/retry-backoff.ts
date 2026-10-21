@@ -17,11 +17,14 @@ const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.ServiceUnavailable,
 ])
 
-// Walk the `Error.cause` chain to find a nested HttpError. Guards against
-// cycles via a visited set. Used by `isTransientServerError` so that
-// wrapped errors (rethrown with the original error attached as
-// `new Error(msg, { cause: httpError })`) are still correctly classified.
-const findHttpError = (error: unknown): HttpError | undefined => {
+// Walk the `Error.cause` chain for the first link the picker accepts,
+// cycle-guarded through a visited set, so an error rethrown with the
+// original attached (`new Error(msg, { cause })`) is still classified
+// by what it wraps.
+const findInCauseChain = <T>(
+  error: unknown,
+  pick: (candidate: object) => T | undefined,
+): T | undefined => {
   const visited = new Set<object>()
   let current: unknown = error
   while (
@@ -29,8 +32,9 @@ const findHttpError = (error: unknown): HttpError | undefined => {
     current !== null &&
     !visited.has(current)
   ) {
-    if (isHttpError(current)) {
-      return current
+    const picked = pick(current)
+    if (picked !== undefined) {
+      return picked
     }
     visited.add(current)
     const { cause } = current as { cause?: unknown }
@@ -38,6 +42,11 @@ const findHttpError = (error: unknown): HttpError | undefined => {
   }
   return undefined
 }
+
+const findHttpError = (error: unknown): HttpError | undefined =>
+  findInCauseChain(error, (candidate) =>
+    isHttpError(candidate) ? candidate : undefined,
+  )
 
 /**
  * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
@@ -50,29 +59,6 @@ export const isTransientServerError = (error: unknown): boolean => {
   const httpError = findHttpError(error)
   const status = httpError?.response.status
   return typeof status === 'number' && TRANSIENT_STATUSES.has(status)
-}
-
-// Walk the `Error.cause` chain for the first error the predicate
-// accepts, cycle-guarded like `findHttpError`.
-const findInChain = (
-  error: unknown,
-  predicate: (candidate: unknown) => boolean,
-): boolean => {
-  const visited = new Set<object>()
-  let current: unknown = error
-  while (
-    typeof current === 'object' &&
-    current !== null &&
-    !visited.has(current)
-  ) {
-    if (predicate(current)) {
-      return true
-    }
-    visited.add(current)
-    const { cause } = current as { cause?: unknown }
-    current = cause
-  }
-  return false
 }
 
 // Node's fetch (undici) reports every network-level failure — DNS, a
@@ -98,7 +84,9 @@ const isNetworkFailure = (candidate: unknown): boolean =>
  * @returns Whether the error represents a transient network failure.
  */
 export const isTransientNetworkFailure = (error: unknown): boolean =>
-  findInChain(error, isNetworkFailure)
+  findInCauseChain(error, (candidate) =>
+    isNetworkFailure(candidate) ? candidate : undefined,
+  ) !== undefined
 
 /**
  * The transient set a read is retried on: a transient HTTP status
