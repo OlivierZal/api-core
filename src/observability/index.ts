@@ -5,6 +5,7 @@ export type { Redaction, RedactionOptions } from './redaction.ts'
 export { APICallLogData, MAX_LOGGED_BODY_BYTES } from './context.ts'
 export { createAPICallErrorData } from './error.ts'
 export { LifecycleEmitter } from './events-emitter.ts'
+export { failureCauseChain, isKnownFailure, logFailure } from './failure-log.ts'
 export {
   FAILURE_REMINDER_INTERVAL_MS,
   FailureStreaks,

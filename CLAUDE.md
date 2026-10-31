@@ -626,6 +626,47 @@ off the barrel on the premise that no consumer builds streaks; heatzy-api
 had built two the day before, which is the hand-mirrored twin this
 package exists to end.
 
+**A known failure is one line naming its cause chain; a programming
+error keeps its stack (2.3.0, 2026-10-31).** `runBestEffortSyncCycle`
+and `#reportResumeFailure` logged the error OBJECT, and a host's
+`console.error` prints an object with its stack: a com.melcloud
+diagnostic report of MELCloud's nightly window (around 00:08 UTC) showed
+`DOMException [TimeoutError]: The operation was aborted due to timeout`
+over ten undici and api-core frames — a transient the streak had already
+reduced to one line per episode, reading as a code crash. Both sites
+write through `logFailure(logger, label, error)`
+(`src/observability/failure-log.ts`). A failure `isKnownFailure` — an
+`HttpError`, the `APIError` family, or a transport failure (`fetch
+failed`, the client's `TimeoutError`, a caller's `AbortError`), anywhere
+in the `cause` chain — is `${label} ${failureCauseChain(error)}`: each
+link its `failureReason` plus its string `code` (`ECONNRESET`,
+`UND_ERR_CONNECT_TIMEOUT`; a `DOMException`'s numeric legacy code is
+left out), joined by `— caused by`, a cycle walked once. Anything
+else stays `logger.error(label, error)`: a `TypeError` from a bug is
+located by its stack alone, and must stay loud. The chain is ONE walk,
+`causeChain` (`src/errors/cause-chain.ts`, on the errors barrel, not
+the root's) — the 2.2.0 transient predicates and the formatter iterate
+the same generator, so what classifies a wrapped failure is what spells
+it. The format is melcloud-api 60.2.0's: its `safeRequest` line had
+grown a `describeCauses` suffix (`— caused by ConnectTimeoutError:
+Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)`) beside the object the
+day it adopted 2.2.0 — a hand-mirrored copy of the kind this package
+exists to end, which the SDK deletes at the pin bump by routing that
+line through `logFailure`; spelling the chain identically here is what
+keeps its lines unchanged across the adoption. Two error-object sites
+stay as they are, on purpose: `fireAndForget`'s `Auto-sync failed:` (the
+homey-kit twin, verbatim, and the auto-timer drives the best-effort
+cycle, which swallows — the line fires only for a subclass throwing
+outside it) and `LifecycleEmitter`'s callback-threw line (a host's bug,
+loud by design). Pinned in `failure-log.test.ts` (the known and unknown
+tables, the chain spelling with codes, the cycle, the primitive, the
+object link spelled by type and code alone, both `logFailure`
+branches), `cause-chain.test.ts` (order, cycle, primitive and `null`
+terminators) and `session-api.test.ts` (the one-line cycle failure on
+the report's `TimeoutError`, the one-line resume failure on a refused
+credential, and the error object for a programming error on both
+paths).
+
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
 the BEST-EFFORT `syncRegistry`: `initialize()` has no try/catch and
@@ -841,13 +882,17 @@ deliberate, not a leftover: the kit declares no dependency and this
 package will not depend on a Homey kit, so `src/fire-and-forget.ts` and
 its `Logger` seam live twice, verbatim, and change together (verified
 2026-10-15, the family's directive audit). The root barrel
-exports 73 names, 47 values and 26 types — re-counted 2026-10-09:
+exports 76 names, 50 values and 26 types — re-counted 2026-10-31:
 1.3.0 added `ValidationError` and `syncDevices` (both re-exported by
 both SDKs), #39 added `FailureStreaks` (imported by both SDKs' code),
 `failureReason` (by heatzy-api's code alone) and
 `FAILURE_REMINDER_INTERVAL_MS` (by both SDKs' suites alone) — each has
-an external importer, so none is counted below — and 1.10.0 the type
-`RedactionOptions` (next paragraph); 22 of the 2026-09-07
+an external importer, so none is counted below — 1.10.0 the type
+`RedactionOptions` (next paragraph), and 2.3.0 the three values
+`failureCauseChain`, `isKnownFailure` and `logFailure`, with no
+external importer until the SDKs' 2.3.0 adoptions (melcloud-api's
+`describeCauses` is the copy `failureCauseChain` replaces, and its
+`safeRequest` line the first `logFailure` caller); 22 of the 2026-09-07
 barrel — fifteen values, seven types — have NO
 external importer, through the root or through a subpath:
 

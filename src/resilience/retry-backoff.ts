@@ -1,3 +1,4 @@
+import { causeChain } from '../errors/index.ts'
 import { type HttpError, HttpStatus, isHttpError } from '../http/index.ts'
 
 // HTTP 5xx status codes considered transient (server-side glitches that
@@ -17,36 +18,10 @@ const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.ServiceUnavailable,
 ])
 
-// Walk the `Error.cause` chain for the first link the picker accepts,
-// cycle-guarded through a visited set, so an error rethrown with the
-// original attached (`new Error(msg, { cause })`) is still classified
-// by what it wraps.
-const findInCauseChain = <T>(
-  error: unknown,
-  pick: (candidate: object) => T | undefined,
-): T | undefined => {
-  const visited = new Set<object>()
-  let current: unknown = error
-  while (
-    typeof current === 'object' &&
-    current !== null &&
-    !visited.has(current)
-  ) {
-    const picked = pick(current)
-    if (picked !== undefined) {
-      return picked
-    }
-    visited.add(current)
-    const { cause } = current as { cause?: unknown }
-    current = cause
-  }
-  return undefined
-}
-
+// Classified by what it wraps: an error rethrown with the original
+// attached (`new Error(msg, { cause })`) is judged on its whole chain.
 const findHttpError = (error: unknown): HttpError | undefined =>
-  findInCauseChain(error, (candidate) =>
-    isHttpError(candidate) ? candidate : undefined,
-  )
+  causeChain(error).find((link) => isHttpError(link))
 
 /**
  * Predicate suitable for {@link RetryBackoffOptions.isRetryable}: returns
@@ -84,9 +59,7 @@ const isNetworkFailure = (candidate: unknown): boolean =>
  * @returns Whether the error represents a transient network failure.
  */
 export const isTransientNetworkFailure = (error: unknown): boolean =>
-  findInCauseChain(error, (candidate) =>
-    isNetworkFailure(candidate) ? candidate : undefined,
-  ) !== undefined
+  causeChain(error).some((link) => isNetworkFailure(link))
 
 /**
  * The transient set a read is retried on: a transient HTTP status

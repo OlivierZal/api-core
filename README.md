@@ -172,6 +172,17 @@ failure the pipeline cannot key (a payload refusing a schema) is
 streaked the same way rather than re-implemented; `has()` says whether
 a subject's streak is open.
 
+A failure the core has a class for — an `HttpError`, one of its own
+errors, a transport failure (undici's `fetch failed`, the client's
+`TimeoutError`, a caller's `AbortError`), anywhere in its `cause` chain
+— is written as ONE line naming that chain, with no stack: `Failed to
+fetch devices: TypeError: fetch failed — caused by ConnectTimeoutError:
+Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)`. A programming error
+keeps its stack: it is logged as the label and the error object. The
+same split is yours through `logFailure(logger, label, error)`, with
+`isKnownFailure` and `failureCauseChain` beside it for a line of your
+own.
+
 ## Testing
 
 The helpers every SDK suite used to copy come from the `./testing`

@@ -25,6 +25,7 @@ import {
   baseRedaction,
   createAPICallErrorData,
   LifecycleEmitter,
+  logFailure,
 } from '../observability/index.ts'
 import { pluralize } from '../observability/pluralize.ts'
 import {
@@ -894,8 +895,10 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
 
   /**
    * The heartbeat's guard around {@link runSyncCycle}: a flaky periodic
-   * refresh must not crash the host, so the failure is logged and the
-   * caller reads an empty list; the next cycle retries.
+   * refresh must not crash the host, so the failure is logged — through
+   * {@link logFailure}: one line naming its cause chain when it is a
+   * failure this package has a class for, the error object otherwise —
+   * and the caller reads an empty list; the next cycle retries.
    *
    * The ENFORCED post-auth sync deliberately does not come through
    * here. A permanent registry failure — a validation rejection, a
@@ -920,7 +923,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
           failureReason(error),
         )
       ) {
-        this.logger.error('Failed to fetch devices:', error)
+        logFailure(this.logger, 'Failed to fetch devices:', error)
       }
       return []
     }
@@ -1254,7 +1257,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   //   `AuthRetryPolicy` replay then spends its one guarded round-trip
   //   re-sending the very credential the server refused.
   #reportResumeFailure(error: unknown, acceptedBefore: number): boolean {
-    this.logger.error('Session resume failed:', error)
+    logFailure(this.logger, 'Session resume failed:', error)
     if (this.#acceptedSignIns !== acceptedBefore) {
       return true
     }

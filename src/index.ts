@@ -73,8 +73,11 @@ export {
   createRedaction,
   FAILURE_REMINDER_INTERVAL_MS,
   FailureStreaks,
+  failureCauseChain,
   failureReason,
+  isKnownFailure,
   LifecycleEmitter,
+  logFailure,
   MAX_LOGGED_BODY_BYTES,
   REDACTED,
 } from './observability/index.ts'

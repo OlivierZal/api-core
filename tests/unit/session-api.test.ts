@@ -1144,7 +1144,23 @@ describe(SessionAPI, () => {
       const store = withCredentials(createStore())
       const logger = createLogger()
       using harness = new Harness({ logger, settingManager: store.manager })
-      const error = new AuthenticationError('rejected')
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: AuthenticationError: rejected',
+      )
+    })
+
+    // A refused credential is a failure this package has a class for,
+    // so its line names the cause chain and carries no stack; a sign-in
+    // that threw a programming error keeps the error object, whose
+    // stack is the one thing that locates the bug.
+    it('keeps the error object when the sign-in failed on a programming error', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      const error = new Error('login code broke')
       harness.authError = error
 
       await expect(harness.resumeSession()).resolves.toBe(false)
@@ -1179,15 +1195,16 @@ describe(SessionAPI, () => {
       const logger = createLogger()
       using harness = new Harness({ logger, settingManager: store.manager })
       seedSession(harness)
-      const error = new AuthenticationError('rejected')
-      harness.authError = error
+      harness.authError = new AuthenticationError('rejected')
 
       await expect(harness.resumeSession()).resolves.toBe(false)
 
       // The refusal left the previous session alone — this clause is
       // about the verdict, never about clearing.
       expect(harness.isAuthenticated()).toBe(true)
-      expect(logger.error).toHaveBeenCalledWith('Session resume failed:', error)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: AuthenticationError: rejected',
+      )
     })
   })
 
@@ -2550,6 +2567,8 @@ describe(SessionAPI, () => {
       )
     })
 
+    // A plain `Error` is no failure this package has a class for — a
+    // programming error, logged as the object so its stack locates it.
     it('downgrades the same failure to an empty list best-effort', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
@@ -2559,6 +2578,28 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledWith(
         'Failed to fetch devices:',
         error,
+      )
+    })
+
+    // The nightly MELCloud window, as a diagnostic report showed it: the
+    // client's timeout, printed as an object, spread ten transport
+    // frames under a transient the streak had already reduced to one
+    // line per episode — and read as a crash. A known failure is one
+    // line naming its cause chain, and nothing else.
+    it('logs a known cycle failure as one line naming its cause, without its stack', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await expect(
+        harness.bestEffortCycle(
+          new DOMException(
+            'The operation was aborted due to timeout',
+            'TimeoutError',
+          ),
+        ),
+      ).resolves.toStrictEqual([])
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to fetch devices: TimeoutError: The operation was aborted due to timeout',
       )
     })
 
