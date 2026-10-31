@@ -1,6 +1,7 @@
 export { AuthenticationThrottledError } from './authentication-throttled.ts'
 export { AuthenticationError } from './authentication.ts'
 export { APIError, isAPIError } from './base.ts'
+export { causeChain } from './cause-chain.ts'
 export { RateLimitError } from './rate-limit.ts'
 export { RegistrySyncError } from './registry-sync.ts'
 export { ValidationError } from './validation.ts'

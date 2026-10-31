@@ -1144,7 +1144,23 @@ describe(SessionAPI, () => {
       const store = withCredentials(createStore())
       const logger = createLogger()
       using harness = new Harness({ logger, settingManager: store.manager })
-      const error = new AuthenticationError('rejected')
+      harness.authError = new AuthenticationError('rejected')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: AuthenticationError: rejected',
+      )
+    })
+
+    // A refused credential is a failure this package has a class for,
+    // so its line names the cause chain and carries no stack; a sign-in
+    // that threw a programming error keeps the error object, whose
+    // stack is the one thing that locates the bug.
+    it('keeps the error object when the sign-in failed on a programming error', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      const error = new Error('login code broke')
       harness.authError = error
 
       await expect(harness.resumeSession()).resolves.toBe(false)
@@ -1165,6 +1181,39 @@ describe(SessionAPI, () => {
       await expect(harness.resumeSession()).resolves.toBe(true)
     })
 
+    // The wrap adds the verdict's type, not the bug's location: an
+    // enforced sync that threw a programming error is logged as the
+    // object, so the stack under its cause locates the bug.
+    it('keeps the error object when the enforced sync failed on a programming error', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      const bug = new TypeError(
+        "Cannot read properties of undefined (reading 'Devices')",
+      )
+      harness.enforceError = bug
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed:',
+        expect.objectContaining({ cause: bug, name: 'RegistrySyncError' }),
+      )
+    })
+
+    // An enforced sync the server refused is a condition the wrap
+    // carries: one line, the refusal named under it.
+    it('logs an enforced sync the server refused as one line naming the refusal', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      harness.enforceError = createServerError(503)
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: RegistrySyncError: Signed in, but the registry could not be verified — caused by HttpError: Status 503',
+      )
+    })
+
     // The other shape, and the one a session cannot judge: the server
     // REFUSED the credentials while a session established before the
     // attempt is still standing. A `true` there reports a re-sign-in
@@ -1179,15 +1228,16 @@ describe(SessionAPI, () => {
       const logger = createLogger()
       using harness = new Harness({ logger, settingManager: store.manager })
       seedSession(harness)
-      const error = new AuthenticationError('rejected')
-      harness.authError = error
+      harness.authError = new AuthenticationError('rejected')
 
       await expect(harness.resumeSession()).resolves.toBe(false)
 
       // The refusal left the previous session alone — this clause is
       // about the verdict, never about clearing.
       expect(harness.isAuthenticated()).toBe(true)
-      expect(logger.error).toHaveBeenCalledWith('Session resume failed:', error)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: AuthenticationError: rejected',
+      )
     })
   })
 
@@ -2550,6 +2600,8 @@ describe(SessionAPI, () => {
       )
     })
 
+    // A plain `Error` is no failure this package has a class for — a
+    // programming error, logged as the object so its stack locates it.
     it('downgrades the same failure to an empty list best-effort', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
@@ -2559,6 +2611,26 @@ describe(SessionAPI, () => {
       expect(logger.error).toHaveBeenCalledWith(
         'Failed to fetch devices:',
         error,
+      )
+    })
+
+    // A transient's stack names only the transport and this package, so
+    // a known cycle failure is one line naming its cause chain — a
+    // report reads a condition, not a crash.
+    it('logs a known cycle failure as one line naming its cause, without its stack', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+
+      await expect(
+        harness.bestEffortCycle(
+          new DOMException(
+            'The operation was aborted due to timeout',
+            'TimeoutError',
+          ),
+        ),
+      ).resolves.toStrictEqual([])
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to fetch devices: TimeoutError: The operation was aborted due to timeout',
       )
     })
 
