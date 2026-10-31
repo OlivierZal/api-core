@@ -178,7 +178,8 @@ errors, a transport failure (undici's `fetch failed`, the client's
 — is written as ONE line naming that chain, with no stack: `Failed to
 fetch devices: TypeError: fetch failed — caused by ConnectTimeoutError:
 Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)`. A programming error
-keeps its stack: it is logged as the label and the error object. The
+keeps its stack: it is logged as the label and the error object — under
+a `RegistrySyncError` too, which is judged by what it wraps. The
 same split is yours through `logFailure(logger, label, error)`, with
 `isKnownFailure` and `failureCauseChain` beside it for a line of your
 own.

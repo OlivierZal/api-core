@@ -641,9 +641,23 @@ failed`, the client's `TimeoutError`, a caller's `AbortError`), anywhere
 in the `cause` chain — is `${label} ${failureCauseChain(error)}`: each
 link its `failureReason` plus its string `code` (`ECONNRESET`,
 `UND_ERR_CONNECT_TIMEOUT`; a `DOMException`'s numeric legacy code is
-left out), joined by `— caused by`, a cycle walked once. Anything
+left out), joined by `— caused by`, a cycle walked once, a message
+spanning lines folded onto the one (zod 4's `ZodError.message` is its
+issue list pretty-printed over a dozen lines, and both SDKs'
+`parseOrThrow` hang it under the `ValidationError` as `cause`). Anything
 else stays `logger.error(label, error)`: a `TypeError` from a bug is
-located by its stack alone, and must stay loud. The chain is ONE walk,
+located by its stack alone, and must stay loud — which is why a WRAPPER
+is judged by what it wraps, not counted as known on its own: a
+`RegistrySyncError` carries whatever `enforceRegistrySync` threw (every
+enforced-sync failure reaches `#reportResumeFailure` inside one), so a
+mapping bug under it keeps the object and its `[cause]` stack while a
+refused payload or a transport failure under it is one line; an
+`HttpError` WITH a `cause` is `HttpClient#describe`'s fence around the
+dialect's failure reader having thrown — the reader's bug, the status
+line standing in — and keeps the object too. The other family links
+count on their own because their `cause` is a payload by contract: the
+refused `HttpError` under `toAuthFailure`'s `AuthenticationError`, the
+validator's error under a `ValidationError`. The chain is ONE walk,
 `causeChain` (`src/errors/cause-chain.ts`, on the errors barrel, not
 the root's) — the 2.2.0 transient predicates and the formatter iterate
 the same generator, so what classifies a wrapped failure is what spells
@@ -659,13 +673,28 @@ homey-kit twin, verbatim, and the auto-timer drives the best-effort
 cycle, which swallows — the line fires only for a subclass throwing
 outside it) and `LifecycleEmitter`'s callback-threw line (a host's bug,
 loud by design). Pinned in `failure-log.test.ts` (the known and unknown
-tables, the chain spelling with codes, the cycle, the primitive, the
-object link spelled by type and code alone, both `logFailure`
-branches), `cause-chain.test.ts` (order, cycle, primitive and `null`
-terminators) and `session-api.test.ts` (the one-line cycle failure on
-the report's `TimeoutError`, the one-line resume failure on a refused
-credential, and the error object for a programming error on both
-paths).
+tables — a `RegistrySyncError` over a refused payload and over a
+transport failure known, over a `TypeError` not, an `HttpError`
+carrying its reader's failure not — the chain spelling with codes, the
+cycle, the primitive, the object link spelled by type and code alone,
+the multi-line `ZodError` message folded, both `logFailure` branches),
+`cause-chain.test.ts` (order, cycle, primitive and `null` terminators)
+and `session-api.test.ts` (the one-line cycle failure on the report's
+`TimeoutError`, the one-line resume failure on a refused credential and
+on an enforced sync the server refused, and the error object for a
+programming error on both paths, the enforced sync's `TypeError` under
+its `RegistrySyncError` included). Adoption consequence, to meet at the
+pin bump rather than through a red gate: the SDKs' suites pin the OLD
+object form for failures now written as one string — melcloud-api and
+heatzy-api `tests/contracts/session-lifecycle.test.ts` (`'Session
+resume failed:', expect.any(AuthenticationError)` and `'Failed to fetch
+devices:', expect.any(AuthenticationError)`, two clauses each) and
+melcloud-api `tests/unit/home-api.test.ts`'s eight `'Session resume
+failed:', expect.any(Error)` clauses, of which those staging a refused
+status change form and those staging a plain `Error` (the PAR and
+token-exchange ones) do not; the adoption PRs rewrite them to the
+one-line form, and melcloud-api routes its `safeRequest` line through
+`logFailure` in the same PR.
 
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
@@ -882,17 +911,24 @@ deliberate, not a leftover: the kit declares no dependency and this
 package will not depend on a Homey kit, so `src/fire-and-forget.ts` and
 its `Logger` seam live twice, verbatim, and change together (verified
 2026-10-15, the family's directive audit). The root barrel
-exports 76 names, 50 values and 26 types — re-counted 2026-10-31:
+exports 79 names, 53 values and 26 types — re-counted 2026-10-31
+against `src/index.ts` and the `api-surface.test.ts` list, which agree:
 1.3.0 added `ValidationError` and `syncDevices` (both re-exported by
 both SDKs), #39 added `FailureStreaks` (imported by both SDKs' code),
 `failureReason` (by heatzy-api's code alone) and
 `FAILURE_REMINDER_INTERVAL_MS` (by both SDKs' suites alone) — each has
 an external importer, so none is counted below — 1.10.0 the type
-`RedactionOptions` (next paragraph), and 2.3.0 the three values
-`failureCauseChain`, `isKnownFailure` and `logFailure`, with no
-external importer until the SDKs' 2.3.0 adoptions (melcloud-api's
-`describeCauses` is the copy `failureCauseChain` replaces, and its
-`safeRequest` line the first `logFailure` caller); 22 of the 2026-09-07
+`RedactionOptions` (next paragraph), 1.12.0 the value
+`MAX_LOGGED_BODY_BYTES` and 2.2.0 the values `isTransientFailure` and
+`isTransientNetworkFailure` — three additions the 2026-10-09 figure of
+47 never absorbed (the 2.3.0 draft derived 50 from it instead of
+re-counting), none imported by either SDK's code or suite (grep
+2026-10-31), so they are held by this ledger alone beside the fifteen
+below — and 2.3.0 the three values `failureCauseChain`,
+`isKnownFailure` and `logFailure`, with no external importer until the
+SDKs' 2.3.0 adoptions (melcloud-api's `describeCauses` is the copy
+`failureCauseChain` replaces, and its `safeRequest` line the first
+`logFailure` caller); 22 of the 2026-09-07
 barrel — fifteen values, seven types — have NO
 external importer, through the root or through a subpath:
 
@@ -929,7 +965,7 @@ unchanged.
 They STAY exported: an unconstructed export costs a consumer nothing, a
 host composing its own client outside `SessionAPI` may want exactly
 these pieces, and trimming them would be a major for nothing.
-`api-surface.test.ts` pins the WHOLE 47-name value surface, not this
+`api-surface.test.ts` pins the WHOLE 53-name value surface, not this
 subset — one sorted list against the barrel's keys, so a drop or an
 addition of any value export fails there — and no test pins the type
 exports: the eighteen imported ones are held by the

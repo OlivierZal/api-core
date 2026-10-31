@@ -5,6 +5,7 @@ import {
   RegistrySyncError,
   ValidationError,
 } from '../../src/errors/index.ts'
+import { HttpError } from '../../src/http/index.ts'
 import {
   failureCauseChain,
   isKnownFailure,
@@ -30,6 +31,26 @@ const fetchFailed = (): TypeError =>
     }),
   })
 
+// The client's fence around the dialect's failure reader: the status
+// line stands in for the message, and the reader's own throw rides
+// `cause`.
+const readerFailed = (): HttpError =>
+  new HttpError('Request failed with status code 500', {
+    cause: new TypeError('describeFailure bug'),
+    response: { data: {}, headers: {}, status: 500 },
+  })
+
+// A zod 4 `ZodError`, as `instanceof Error` sees it: its message is the
+// issue list, pretty-printed over many lines.
+class ZodError extends Error {
+  public override readonly name = 'ZodError'
+}
+
+const zodError = (): Error =>
+  new ZodError(
+    '[\n  {\n    "code": "invalid_type",\n    "path": [\n      "Devices"\n    ]\n  }\n]',
+  )
+
 const FETCH_FAILED_CHAIN =
   'TypeError: fetch failed — caused by Error: Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)'
 
@@ -37,10 +58,6 @@ describe(isKnownFailure, () => {
   it.each([
     ['an HttpError', createServerError(503)],
     ['a refused credential', new AuthenticationError('rejected')],
-    [
-      'a registry sync failure',
-      new RegistrySyncError('stale', { cause: new Error('registry broke') }),
-    ],
     ['a validation failure', new ValidationError('refused', { context: 'x' })],
     ["undici's fetch failed", new TypeError('fetch failed')],
     ['the client timeout', timeoutError()],
@@ -49,10 +66,20 @@ describe(isKnownFailure, () => {
       'a wrapped HttpError',
       new Error('wrapped', { cause: createServerError(500) }),
     ],
+    [
+      'a registry sync failure over a refused payload',
+      new RegistrySyncError('stale', { cause: createServerError(500) }),
+    ],
+    [
+      'a registry sync failure over a transport failure',
+      new RegistrySyncError('stale', { cause: fetchFailed() }),
+    ],
   ])('knows %s', (_name, error) => {
     expect(isKnownFailure(error)).toBe(true)
   })
 
+  // A wrapper is judged by what it wraps: the verdict's type adds
+  // nothing to a bug's location, and the stack under its cause is it.
   it.each([
     ['a plain error', new Error('boom')],
     ['another TypeError', new TypeError('x is not a function')],
@@ -60,6 +87,15 @@ describe(isKnownFailure, () => {
     ['a string', 'offline'],
     ['undefined', undefined],
     ['a plain object', { code: 'ECONNRESET' }],
+    [
+      'a registry sync failure over a programming error',
+      new RegistrySyncError('stale', {
+        cause: new TypeError(
+          "Cannot read properties of undefined (reading 'Devices')",
+        ),
+      }),
+    ],
+    ["an HttpError carrying its reader's failure", readerFailed()],
   ])('does not know %s', (_name, error) => {
     expect(isKnownFailure(error)).toBe(false)
   })
@@ -105,6 +141,20 @@ describe(failureCauseChain, () => {
 
     expect(failureCauseChain(error)).toBe(
       'Error: wrapped — caused by a thrown object (ECONNRESET)',
+    )
+  })
+
+  // A registry payload refusing its schema is the cycle failure the
+  // validator spells over a dozen lines: the entry a report counts is
+  // still one.
+  it('folds a link whose message spans lines onto the one line', () => {
+    const error = new ValidationError('refused', {
+      cause: zodError(),
+      context: 'x',
+    })
+
+    expect(failureCauseChain(error)).toBe(
+      'ValidationError: refused — caused by ZodError: [ { "code": "invalid_type", "path": [ "Devices" ] } ]',
     )
   })
 })

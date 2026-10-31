@@ -1181,6 +1181,39 @@ describe(SessionAPI, () => {
       await expect(harness.resumeSession()).resolves.toBe(true)
     })
 
+    // The wrap adds the verdict's type, not the bug's location: an
+    // enforced sync that threw a programming error is logged as the
+    // object, so the stack under its cause locates the bug.
+    it('keeps the error object when the enforced sync failed on a programming error', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      const bug = new TypeError(
+        "Cannot read properties of undefined (reading 'Devices')",
+      )
+      harness.enforceError = bug
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed:',
+        expect.objectContaining({ cause: bug, name: 'RegistrySyncError' }),
+      )
+    })
+
+    // An enforced sync the server refused is a condition the wrap
+    // carries: one line, the refusal named under it.
+    it('logs an enforced sync the server refused as one line naming the refusal', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      harness.enforceError = createServerError(503)
+
+      await expect(harness.resumeSession()).resolves.toBe(true)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed: RegistrySyncError: Signed in, but the registry could not be verified — caused by HttpError: Status 503',
+      )
+    })
+
     // The other shape, and the one a session cannot judge: the server
     // REFUSED the credentials while a session established before the
     // attempt is still standing. A `true` there reports a re-sign-in
@@ -2581,11 +2614,9 @@ describe(SessionAPI, () => {
       )
     })
 
-    // The nightly MELCloud window, as a diagnostic report showed it: the
-    // client's timeout, printed as an object, spread ten transport
-    // frames under a transient the streak had already reduced to one
-    // line per episode — and read as a crash. A known failure is one
-    // line naming its cause chain, and nothing else.
+    // A transient's stack names only the transport and this package, so
+    // a known cycle failure is one line naming its cause chain — a
+    // report reads a condition, not a crash.
     it('logs a known cycle failure as one line naming its cause, without its stack', async () => {
       const logger = createLogger()
       using harness = new Harness({ logger })
