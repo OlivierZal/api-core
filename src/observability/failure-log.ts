@@ -54,6 +54,7 @@ const oneLine = (text: string): string => text.replaceAll(/\s+/gu, ' ')
  * reader's own failure, so neither counts on its own.
  * @param error - What the call or cycle threw.
  * @returns `true` for a failure whose cause chain says everything.
+ * @category Errors
  */
 export const isKnownFailure = (error: unknown): boolean =>
   isTransientNetworkFailure(error) ||
@@ -64,11 +65,12 @@ export const isKnownFailure = (error: unknown): boolean =>
  * fetch failed — caused by ConnectTimeoutError: Connect Timeout Error
  * (UND_ERR_CONNECT_TIMEOUT)`: a host logger prints an error as its
  * message, and `fetch failed` on its own names nothing. Each link is its
- * {@link failureReason} plus its string `code` when it carries one; a
+ * `failureReason` plus its string `code` when it carries one; a
  * cycle is walked once; a thrown primitive is spelled by its value; a
  * message spanning lines is folded onto the one line.
  * @param error - What the call or cycle threw.
  * @returns The chain, joined by ` — caused by `.
+ * @category Errors
  */
 export const failureCauseChain = (error: unknown): string => {
   const links = causeChain(error)
@@ -90,6 +92,7 @@ export const failureCauseChain = (error: unknown): string => {
  * @param label - What failed, ending in a colon (`Failed to fetch
  * devices:`).
  * @param error - What it threw.
+ * @category Errors
  */
 export const logFailure = (
   logger: Logger,
