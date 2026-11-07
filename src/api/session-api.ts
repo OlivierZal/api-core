@@ -789,17 +789,31 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     }
   }
 
+  /**
+   * The one door to the transport: the auth headers merged over the
+   * call's own, the request and its response logged, redacted. A
+   * sign-in passes `authenticated: false` — the flag is consumed here
+   * and never reaches the transport — so the stored session's headers
+   * stay off it: Gizwits checks a user token BEFORE the credentials and
+   * refuses a login that carries a stale one with "token invalid"
+   * (measured 2026-11-07), however valid the credentials.
+   * @template T - Type of the parsed response body.
+   * @param method - HTTP method.
+   * @param url - Request URL, relative to the base URL.
+   * @param config - Transport config, plus the optional `authenticated`.
+   * @returns The HTTP response.
+   */
   protected async dispatch<T = unknown>(
     method: string,
     url: string,
     config: Record<string, unknown> = {},
   ): Promise<HttpResponse<T>> {
-    const { headers: configHeaders, ...rest } = config
+    const { authenticated = true, headers: configHeaders, ...rest } = config
     const requestConfig = {
       ...rest,
       headers: {
         ...(typeof configHeaders === 'object' && configHeaders),
-        ...this.getAuthHeaders(),
+        ...(authenticated !== false && this.getAuthHeaders()),
       },
       method,
       ...(this.abortSignal !== undefined && { signal: this.abortSignal }),

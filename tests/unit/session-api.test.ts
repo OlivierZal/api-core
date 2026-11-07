@@ -1972,6 +1972,22 @@ describe(SessionAPI, () => {
       expect(lastHeaders()['x-session-token']).toBe('token:seeded')
     })
 
+    // A sign-in rides no stored session: the flag keeps the auth
+    // headers off it and never reaches the transport itself.
+    it('leaves the auth headers off a call declared unauthenticated', async () => {
+      using harness = new Harness()
+      seedSession(harness)
+      respondWith(HTTP_OK)
+
+      await harness.callDispatch('post', '/login', {
+        authenticated: false,
+        headers: { 'x-trace': 'abc' },
+      })
+
+      expect(lastHeaders()).toStrictEqual({ 'x-trace': 'abc' })
+      expect(lastInit()).not.toHaveProperty('authenticated')
+    })
+
     it('sends the auth headers alone when the call supplies none', async () => {
       using harness = new Harness()
       seedSession(harness)
