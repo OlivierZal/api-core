@@ -14,20 +14,24 @@
  */
 export interface LifecycleEvents<TSyncParams = unknown> {
   /**
-   * Fires when a previously-available session is definitively lost:
-   * the boot-time restore found persisted state but could not sign
-   * in, or a sync cycle ended unauthenticated after the auth-retry
-   * chain gave up. The auto-sync disarms at the same moment
-   * (rescheduling would hammer the account with a doomed sign-in
-   * every cycle); a successful `authenticate()` — e.g. the user
-   * logging back in — re-arms it. Fires once per loss episode.
+   * Fires when the session is definitively lost — when nothing
+   * automatic can end the loss: the stored credential was refused (by a
+   * resume at boot, a deferred retry or the reactive re-auth), or a
+   * persisted session died with no credential to sign back in with.
+   * The user has to act, typically by signing in again. A TRANSIENT
+   * failure — a transport blip, a server error — fires nothing: the
+   * resume is retried every minute until it succeeds (2.4.0). On a
+   * definitive loss the auto-sync disarms (rescheduling would hammer
+   * the account with a doomed sign-in every cycle); a successful
+   * `authenticate()` re-arms it. Fires once per loss episode.
    */
   readonly onAuthenticationLost?: (() => void) | undefined
   /**
    * Fires when a sync cycle ends authenticated after an
-   * `onAuthenticationLost` episode — the user logged back in or a
-   * retry recovered the session. Fires once per loss episode, so the
-   * two events always alternate.
+   * `onAuthenticationLost` episode — after the accepted sign-in that
+   * ends it, since a refused credential is never retried automatically.
+   * Fires once per loss episode, so the two events always alternate; a
+   * transient failure, having fired no loss, fires no recovery either.
    */
   readonly onAuthenticationRestored?: (() => void) | undefined
   /**
