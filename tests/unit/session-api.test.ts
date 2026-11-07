@@ -30,6 +30,7 @@ import { createRedaction, REDACTED } from '../../src/observability/index.ts'
 import { Temporal } from '../../src/temporal.ts'
 import {
   cast,
+  createHttpError,
   createLogger,
   createServerError,
   createUnauthorizedError,
@@ -850,6 +851,103 @@ describe(SessionAPI, () => {
       expect(harness.seen).not.toContain('doAuthenticate')
     })
 
+    // A transient failure — a transport blip, a server error the wire did
+    // not word as a refusal — says nothing about the pair: it is retried
+    // a minute later instead of parked, and no loss is announced. Until
+    // 2.4.0 it scheduled nothing, and the cycle after it announced a loss
+    // and disarmed for the life of the process (field report 2026-11-07).
+    it('retries a transient resume failure a minute later, announcing nothing', async () => {
+      const store = withCredentials(createStore())
+      const onAuthenticationLost = vi.fn<() => void>()
+      using harness = new Harness({
+        events: { onAuthenticationLost },
+        settingManager: store.manager,
+      })
+      harness.authError = new TypeError('fetch failed')
+
+      await expect(harness.resumeSession()).resolves.toBe(false)
+
+      expect(store.values.get('loginBackoffUntil')).toBe(
+        String(Date.now() + MS_PER_MINUTE),
+      )
+      expect(onAuthenticationLost).not.toHaveBeenCalled()
+
+      harness.authError = undefined
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(
+        harness.seen.filter((hook) => hook === 'doAuthenticate'),
+      ).toHaveLength(2)
+      expect(harness.isAuthenticated()).toBe(true)
+    })
+
+    // The window would otherwise write a line a minute for as long as
+    // the outage lasts: the episode is one streak, closed by the sign-in
+    // that ends it.
+    it('logs a failing restore once per streak and closes it on the accepted sign-in', async () => {
+      const store = withCredentials(createStore())
+      const logger = createLogger()
+      using harness = new Harness({ logger, settingManager: store.manager })
+      harness.authError = new TypeError('fetch failed')
+
+      await harness.resumeSession()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+      harness.authError = undefined
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(
+        vi
+          .mocked(logger.error)
+          .mock.calls.filter(([label]) =>
+            String(label).startsWith(
+              'Session resume failed, retried every minute:',
+            ),
+          ),
+      ).toHaveLength(1)
+      expect(logger.log).toHaveBeenCalledWith(
+        'Signed in again after 2 failed attempts',
+      )
+    })
+
+    // A refusal found by a deferred retry has no sync cycle after it —
+    // the heartbeat was never armed — so the refusal announces itself.
+    // A boot inside the window announces nothing: a retry is planned.
+    it('announces a refusal that a deferred retry finds', async () => {
+      const store = withCredentials(createStore())
+      store.values.set('loginBackoffUntil', String(Date.now() + MS_PER_MINUTE))
+      const onAuthenticationLost = vi.fn<() => void>()
+      using harness = new Harness({
+        events: { onAuthenticationLost },
+        settingManager: store.manager,
+      })
+
+      await harness.initialize()
+
+      expect(onAuthenticationLost).not.toHaveBeenCalled()
+
+      harness.authError = new AuthenticationError('rejected')
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+    })
+
+    // A scheduled retry owns the recovery: the cycle that ends
+    // unauthenticated meanwhile does not re-arm the heartbeat as well.
+    it('leaves the recovery to the scheduled retry instead of re-arming the heartbeat', async () => {
+      const store = withCredentials(createStore())
+      using harness = new Harness({
+        settingManager: store.manager,
+        syncIntervalMinutes: 1,
+      })
+      harness.authError = new TypeError('fetch failed')
+      await harness.resumeSession()
+
+      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+
+      expect(harness.seen).not.toContain('syncRegistry')
+    })
+
     // The pause is over, so the retry has nothing left to do — letting
     // it fire would spend a sign-in round-trip against the endpoint the
     // upstream throttles hardest.
@@ -1155,7 +1253,8 @@ describe(SessionAPI, () => {
     // A refused credential is a failure this package has a class for,
     // so its line names the cause chain and carries no stack; a sign-in
     // that threw a programming error keeps the error object, whose
-    // stack is the one thing that locates the bug.
+    // stack is the one thing that locates the bug — and, being no
+    // refusal, is retried every minute rather than parked.
     it('keeps the error object when the sign-in failed on a programming error', async () => {
       const store = withCredentials(createStore())
       const logger = createLogger()
@@ -1164,7 +1263,10 @@ describe(SessionAPI, () => {
       harness.authError = error
 
       await expect(harness.resumeSession()).resolves.toBe(false)
-      expect(logger.error).toHaveBeenCalledWith('Session resume failed:', error)
+      expect(logger.error).toHaveBeenCalledWith(
+        'Session resume failed, retried every minute:',
+        error,
+      )
     })
 
     // One of the two shapes the catch judges — by the SIGN-IN
@@ -1341,7 +1443,7 @@ describe(SessionAPI, () => {
   // `onAuthenticationLost` could never fire while the stale session
   // stood.
   describe('credential-refusal verdict', () => {
-    it('surfaces onAuthenticationLost once per episode when a cycle settles on a refused credential over a standing session', async () => {
+    it('surfaces onAuthenticationLost once per episode on a refused credential over a standing session', async () => {
       const store = withCredentials(createStore())
       const onAuthenticationLost = vi.fn<() => void>()
       using harness = new Harness({
@@ -1353,15 +1455,16 @@ describe(SessionAPI, () => {
 
       await expect(harness.resumeSession()).resolves.toBe(false)
 
-      // The cycle epilogue owns the surfacing, so nothing has been
-      // announced yet — and the session itself still stands: the
-      // verdict, not the store, changed.
-      expect(onAuthenticationLost).not.toHaveBeenCalled()
+      // The refusal announces the loss at once — one a deferred retry
+      // finds has no cycle after it to settle on — and the session
+      // itself still stands: the verdict, not the store, changed.
+      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
       expect(harness.isAuthenticated()).toBe(true)
 
       await harness.fetchMutable()
       await harness.fetchMutable()
 
+      // Once per episode: the cycles settling on the refusal add nothing.
       expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
     })
 
@@ -1648,6 +1751,28 @@ describe(SessionAPI, () => {
   // the status set — spelled ONCE now, as `authFailureStatuses` — and
   // the message.
   describe('toAuthFailure', () => {
+    // The refinement is part of the vocabulary, so the sign-in
+    // normalization reads it too: the vocabulary keeps one spelling.
+    it('honours the injected refinement of the auth-failure statuses', () => {
+      using harness = new Harness(
+        {},
+        {
+          authFailureStatuses: [400],
+          isAuthFailure: (error): boolean => error.message === 'token invalid',
+        },
+      )
+
+      expect(
+        harness.normalizeFailure(createServerError(400), REJECTED_MESSAGE),
+      ).toBeNull()
+      expect(
+        harness.normalizeFailure(
+          createHttpError({ message: 'token invalid', status: 400, url: '/x' }),
+          REJECTED_MESSAGE,
+        ),
+      ).toBeInstanceOf(AuthenticationError)
+    })
+
     it('narrows an HttpError on the default vocabulary into an AuthenticationError carrying the cause', () => {
       using harness = new Harness()
       const rejection = createUnauthorizedError('/login')
@@ -2731,18 +2856,28 @@ describe(SessionAPI, () => {
       expect(harness.isAuthenticated()).toBe(false)
     })
 
-    it('announces the loss when a recoverable cycle ends unauthenticated', async () => {
+    // Unauthenticated over credentials nobody refused is no loss: the
+    // next cycle signs in again, so the heartbeat stays armed and nothing
+    // tells the user to re-enter credentials that still work. Until
+    // 2.4.0 this announced the loss and disarmed — one server hiccup at
+    // heatzy's reactive re-login left it dormant for good (field report
+    // 2026-11-07).
+    it('keeps the heartbeat, announcing nothing, when a recoverable cycle ends unauthenticated', async () => {
       const store = withCredentials(createStore())
       const onAuthenticationLost = vi.fn<() => void>()
       using harness = new Harness({
         events: { onAuthenticationLost },
         settingManager: store.manager,
+        syncIntervalMinutes: 1,
       })
+      vi.useFakeTimers()
 
       await harness.fetchMutable()
-      await harness.fetchMutable()
+      await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
+      vi.useRealTimers()
 
-      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+      expect(onAuthenticationLost).not.toHaveBeenCalled()
+      expect(harness.seen).toContain('syncRegistry')
     })
 
     it('stays silent when an unconfigured instance is probed', async () => {
@@ -2754,8 +2889,12 @@ describe(SessionAPI, () => {
       expect(onAuthenticationLost).not.toHaveBeenCalled()
     })
 
-    // The two events always alternate: one per loss episode.
-    it('announces the recovery once the next cycle is authenticated', async () => {
+    // The two events always alternate, one pair per DEFINITIVE episode:
+    // a cycle that ended unauthenticated without a refusal announced
+    // nothing, so the cycle authenticated again announces nothing
+    // either. The refused episode's pair is pinned in the
+    // credential-refusal verdict.
+    it('announces neither event across an unauthenticated cycle nobody refused', async () => {
       const store = withCredentials(createStore())
       const onAuthenticationLost = vi.fn<() => void>()
       const onAuthenticationRestored = vi.fn<() => void>()
@@ -2767,10 +2906,9 @@ describe(SessionAPI, () => {
       await harness.fetchMutable()
       seedSession(harness)
       await harness.fetchMutable()
-      await harness.fetchMutable()
 
-      expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
-      expect(onAuthenticationRestored).toHaveBeenCalledTimes(1)
+      expect(onAuthenticationLost).not.toHaveBeenCalled()
+      expect(onAuthenticationRestored).not.toHaveBeenCalled()
     })
   })
 

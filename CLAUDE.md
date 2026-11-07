@@ -331,7 +331,11 @@ whose lockout says nothing about the pair, and never a transport blip
 epilogue through `isSessionServable()` (`isAuthenticated() &&
 !refused`), so a server-side password change surfaces
 `onAuthenticationLost` once per episode while the stale session
-deliberately stays stored. `isSessionServable()` is the record's ONE
+deliberately stays stored. Since 2.4.0 the record also announces the
+loss itself, when it is written: a refusal found by a deferred retry
+has no sync cycle after it to settle on (the heartbeat was never
+armed); the epilogue's emission stays, idempotent within the episode.
+`isSessionServable()` is the record's ONE
 protected read — promoted from `#private` when melcloud's adoption
 showed `ensureAuthenticated` (a melcloud-only surface this package
 does not carry) must judge the RECORDED verdict on every rung, and
@@ -469,8 +473,10 @@ a `#` name would persist under `#loginBackoffUntil`.
 **`#armLoginBackoff` gates on `error instanceof AuthenticationError`,
 and the gate guards the LOGIN only.** Three clauses hold it: a rejected
 sign-in ARMS it (900 000 ms, or the throttle branch), a transport
-failure does NOT (the normal retry paths own those, and pausing
-sign-ins would mask a blip), and a failing post-auth registry sync does
+failure does NOT (pausing every sign-in would mask a blip — the
+AUTOMATIC resume arms its own one-minute retry instead, see "A loss is
+announced only when it is definitive"), and a failing post-auth
+registry sync does
 NOT either — the server already accepted the credentials, so locking
 the user out over a registry problem would be wrong. Only the `catch`
 around `doAuthenticate` can arm it.
@@ -550,8 +556,10 @@ parks the pair until the user's next accepted sign-in lifts it —
 replaying a dead pair every window for the life of the process is the
 hammering the disarm-on-refusal verdict two paragraphs up exists to
 prevent, and 1.4.0 shipped exactly that until 1.6.0 (a verifier read the
-two paragraphs side by side). A transport blip arms no window, so it
-schedules nothing. The timer is
+two paragraphs side by side). A transient failure — anything that is
+not an `AuthenticationError` — arms a one-minute window of its own and
+schedules the retry at it (2.4.0, below); until then it armed nothing
+and scheduled nothing. The timer is
 cleared by `logOut`, by `#finishLogin` (an accepted sign-in ends the
 pause, so letting the retry fire would spend a round-trip against the
 endpoint the upstream throttles hardest) and by `[Symbol.dispose]`, and
@@ -695,6 +703,41 @@ status change form and those staging a plain `Error` (the PAR and
 token-exchange ones) do not; the adoption PRs rewrite them to the
 one-line form, and melcloud-api routes its `safeRequest` line through
 `logFailure` in the same PR.
+
+**A loss is announced only when it is definitive (2.4.0).** Field
+report 2026-11-07, com.heatzy: one Gizwits `400` that was a server
+hiccup, not a token verdict, was read as an expired token (every `400`
+armed the reactive re-auth), so heatzy cleared a session valid until
+January; its re-login met the same hiccup, was read as a refused
+credential (every `400` on the login was), PARKED the pair and told the
+user to sign in again — and nothing retried for the life of the process,
+until a restart signed straight back in with the stored credentials. Two
+gaps of this class lived here. (1) A TRANSIENT resume failure — anything
+that is not an `AuthenticationError`: a transport blip, a server error,
+a programming error — armed no window and scheduled nothing, and the
+cycle epilogue then announced a loss and disarmed: the very dormancy the
+backoff paragraph above calls a bug, reached by another door. Now
+`#reportResumeFailure` hands it to `#retryAfterTransientFailure`: a
+one-minute window (`RESUME_RETRY_AFTER_FAILURE_MS`, persisted like the
+others) gates automatic sign-ins — a five-second heartbeat cannot turn
+an outage into a sign-in per tick — and one retry is scheduled at it, so
+the restore retries every minute while the failure lasts; the log gets
+one line per streak (`session-resume`), closed by `Signed in again after
+N failed attempts` on the accepted sign-in (`#finishLogin`). Nothing is
+recorded on the pair. (2) `onAuthenticationLost` means "definitively
+lost", and both emitters now say only that: `#isLossDefinitive()` — the
+stored credential was refused, or a persisted session died with no
+credential to sign back in with — gates `initialize()` and the epilogue.
+A cycle that ends unauthenticated over credentials nobody refused keeps
+the heartbeat (`planNext()`) unless a scheduled retry already owns the
+recovery, and announces nothing; the definitive branch keeps the
+disarm-on-refusal verdict unchanged. The SDK half lives with the SDK:
+`SessionAPIOptions.isAuthFailure` refines `authFailureStatuses` by the
+response itself, for a wire that answers several failures with one
+status, consulted by the reactive re-auth and `toAuthFailure` alike so
+the vocabulary keeps one spelling — heatzy-api narrows its `400` to the
+Gizwits token codes with it. Pinned in `session-api.test.ts` (the
+login-backoff and sync-cycle clauses) and `resilience-policies.test.ts`.
 
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls

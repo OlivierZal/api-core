@@ -29,7 +29,10 @@
  * outside it, so the composition is deterministic and each stage is
  * testable in isolation.
  */
-export { AuthRetryPolicy } from './auth-retry-policy.ts'
+export {
+  type AuthFailureVocabulary,
+  AuthRetryPolicy,
+} from './auth-retry-policy.ts'
 export { DisposableTimeout } from './disposable-timeout.ts'
 export { type ResiliencePolicy, CompositePolicy } from './policy.ts'
 export {
