@@ -12,6 +12,7 @@ import {
   TransientRetryPolicy,
 } from '../../src/resilience/index.ts'
 import {
+  createHttpError,
   createLogger,
   createServerError,
   createUnauthorizedError,
@@ -268,6 +269,26 @@ describe('authRetryPolicy with injected statuses', () => {
 
     await expect(policy.run(attempt)).resolves.toBe('retried')
     expect(reauthenticate).toHaveBeenCalledTimes(1)
+  })
+
+  // A wire that answers several failures with one status — Gizwits: 400
+  // for an invalid token AND for a server error — narrows the vocabulary
+  // by the response: only what the refinement accepts re-authenticates.
+  it('owns only the listed statuses the refinement accepts', () => {
+    using guard = new RetryGuard(1000)
+    const policy = new AuthRetryPolicy(guard, vi.fn<() => Promise<boolean>>(), {
+      statuses: [HttpStatus.BadRequest],
+      refine: (error): boolean => error.message === 'token invalid',
+    })
+    const tokenRefusal: unknown = createHttpError({
+      message: 'token invalid',
+      status: 400,
+      url: '/x',
+    })
+    const serverError: unknown = createServerError(400, '/x')
+
+    expect(policy.isAuthFailure(tokenRefusal)).toBe(true)
+    expect(policy.isAuthFailure(serverError)).toBe(false)
   })
 
   it('passes a 400 through under the default 401-only vocabulary', async () => {

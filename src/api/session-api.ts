@@ -11,6 +11,7 @@ import {
 import { fireAndForget } from '../fire-and-forget.ts'
 import {
   type HttpClient,
+  type HttpError,
   type HttpResponse,
   isHttpError,
 } from '../http/index.ts'
@@ -73,8 +74,9 @@ const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 // Automatic re-login backoff after a REJECTED sign-in: an upstream that
 // throttles logins aggressively while staying generous with requests on
 // an existing session turns a hammered login endpoint into a live
-// lockout. Transport failures do not arm it (the normal retry paths
-// handle those); an explicit `authenticate()` — the user re-submitting
+// lockout. Transport failures do not arm it — a failed AUTOMATIC resume
+// arms its own one-minute retry instead (`RESUME_RETRY_AFTER_FAILURE_MS`);
+// an explicit `authenticate()` — the user re-submitting
 // credentials — bypasses the gate and resets it on success. The
 // deadline persists through the SettingManager so host restarts respect
 // it too — field diagnostics showed four rejected sign-ins within 70
@@ -82,6 +84,20 @@ const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 // despite the announced pause.
 const LOGIN_BACKOFF_FAILURE_MS = 900_000
 const LOGIN_BACKOFF_THROTTLE_MS = 7_200_000
+
+// A TRANSIENT resume failure — a transport blip, a server error the wire
+// did not word as a refusal — says nothing about the pair, so it is
+// retried instead of parked: a minute later, with automatic sign-ins
+// gated until then, so a heartbeat that polls every few seconds cannot
+// turn an outage into a sign-in per tick. Field report 2026-11-07: one
+// server hiccup at heatzy's reactive re-login left the client dormant
+// for the life of the process, having told the user to sign in again
+// over credentials a restart accepted at once.
+const RESUME_RETRY_AFTER_FAILURE_MS = MS_PER_MINUTE
+
+// The automatic resume is one subject: a restore that keeps failing is
+// one streak in the log, however many minutes it retries.
+const RESUME_SUBJECT = 'session-resume'
 
 /**
  * How long to hold sign-ins after a throttle rejection. The server's own
@@ -179,6 +195,17 @@ export interface SessionAPIOptions {
    * `400` passes both.
    */
   readonly authFailureStatuses?: readonly number[] | undefined
+  /**
+   * Narrows {@link authFailureStatuses} by the response itself, for a
+   * wire that answers several failures with one status — Gizwits
+   * answers an invalid token AND a server error with `400`, told apart
+   * only by the body's `error_code`, and reading every `400` as an
+   * expired token cleared a valid session on a server hiccup (field
+   * report 2026-11-07). Consulted wherever the vocabulary is — the
+   * reactive re-auth and `toAuthFailure` alike — so it keeps one
+   * spelling. Omit it to own every listed status.
+   */
+  readonly isAuthFailure?: ((error: HttpError) => boolean) | undefined
   /**
    * Label prefixed to every log line (e.g. `[Classic]`). Omit it when a
    * single client per host makes disambiguation pointless — the raw
@@ -362,6 +389,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @param root1 - Subclass-supplied options.
    * @param root1.authFailureStatuses - Statuses that arm the reactive re-auth.
    * @param root1.defaultSyncIntervalMinutes - Subclass sync cadence default.
+   * @param root1.isAuthFailure - Narrows the listed statuses by the response body.
    * @param root1.logLabel - Optional label prefixed to every log line.
    * @param root1.rateLimitHours - Rate-limit window; omit to build no gate.
    * @param root1.redaction - Redaction engine for the emitted log lines; defaults to the base vocabulary.
@@ -378,6 +406,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     {
       authFailureStatuses,
       defaultSyncIntervalMinutes,
+      isAuthFailure,
       logLabel,
       rateLimitHours,
       redaction = baseRedaction,
@@ -413,7 +442,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     this.#authRetryPolicy = new AuthRetryPolicy(
       this.#retryGuard,
       async () => this.reauthenticate(),
-      authFailureStatuses,
+      { refine: isAuthFailure, statuses: authFailureStatuses },
     )
   }
 
@@ -607,7 +636,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     if (await this.tryReuseSession()) {
       return
     }
-    if (!(await this.resumeSession()) && this.#hasRecoverableState()) {
+    if (!(await this.resumeSession()) && this.#isLossDefinitive()) {
       this.#emitAuthenticationLostOnce()
     }
   }
@@ -760,17 +789,31 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     }
   }
 
+  /**
+   * The one door to the transport: the auth headers merged over the
+   * call's own, the request and its response logged, redacted. A
+   * sign-in passes `authenticated: false` — the flag is consumed here
+   * and never reaches the transport — so the stored session's headers
+   * stay off it: Gizwits checks a user token BEFORE the credentials and
+   * refuses a login that carries a stale one with "token invalid"
+   * (measured 2026-11-07), however valid the credentials.
+   * @template T - Type of the parsed response body.
+   * @param method - HTTP method.
+   * @param url - Request URL, relative to the base URL.
+   * @param config - Transport config, plus the optional `authenticated`.
+   * @returns The HTTP response.
+   */
   protected async dispatch<T = unknown>(
     method: string,
     url: string,
     config: Record<string, unknown> = {},
   ): Promise<HttpResponse<T>> {
-    const { headers: configHeaders, ...rest } = config
+    const { authenticated = true, headers: configHeaders, ...rest } = config
     const requestConfig = {
       ...rest,
       headers: {
         ...(typeof configHeaders === 'object' && configHeaders),
-        ...this.getAuthHeaders(),
+        ...(authenticated !== false && this.getAuthHeaders()),
       },
       method,
       ...(this.abortSignal !== undefined && { signal: this.abortSignal }),
@@ -1095,8 +1138,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // Schedule the single retry the gate's own deadline is already known
   // for, and say in the log why nothing was attempted — a silence a
   // diagnostic report cannot explain is half the defect. Idempotent: a
-  // window is deferred once, and a deadline that is not armed (a
-  // transport blip arms none) schedules nothing.
+  // window is deferred once, and a deadline that is not armed schedules
+  // nothing.
   #deferResumeToBackoffDeadline(): void {
     if (this.#backoffRetry.isActive || !this.#isLoginBackedOff()) {
       return
@@ -1155,6 +1198,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     // left to do — letting it fire would spend a sign-in round-trip
     // against the endpoint the upstream throttles hardest.
     this.#backoffRetry.clear()
+    const failures = this.#failureStreaks.close(RESUME_SUBJECT)
+    if (failures !== null) {
+      this.logger.log(
+        `Signed in again after ${pluralize(failures, 'failed attempt')}`,
+      )
+    }
     try {
       await this.enforceRegistrySync()
     } catch (error) {
@@ -1204,6 +1253,19 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     const until = Number(raw)
     return (
       Number.isFinite(until) && Temporal.Now.instant().epochMilliseconds < until
+    )
+  }
+
+  // A loss is DEFINITIVE when nothing automatic can end it: the stored
+  // credential was refused, or a persisted session died with no
+  // credential to sign back in with. Anything else has a retry planned,
+  // or the next cycle makes one, and announcing it would tell the user to
+  // sign in again over credentials that still work.
+  #isLossDefinitive(): boolean {
+    return (
+      this.#hasRecoverableState() &&
+      (this.#isCredentialRefused ||
+        this.#resolvePersistedCredentials() === null)
     )
   }
 
@@ -1257,38 +1319,49 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   //   `AuthRetryPolicy` replay then spends its one guarded round-trip
   //   re-sending the very credential the server refused.
   #reportResumeFailure(error: unknown, acceptedBefore: number): boolean {
-    logFailure(this.logger, 'Session resume failed:', error)
     if (this.#acceptedSignIns !== acceptedBefore) {
+      logFailure(this.logger, 'Session resume failed:', error)
       return true
     }
-    // A DEFINITIVE refusal — not a throttle, whose lockout says
-    // nothing about the pair, and not a transport blip — is recorded
-    // as a verdict on the stored credential. The record is what lets
-    // the loss-surfacing paths see a dead credential behind a session
-    // the refusal deliberately did not clear; the next ACCEPTED
-    // sign-in lifts it.
-    if (
-      error instanceof AuthenticationError &&
-      !(error instanceof AuthenticationThrottledError)
-    ) {
-      this.#isCredentialRefused = true
-      // A recorded refusal PARKS the pair: replaying it every window
-      // for the life of the process is the hammering the
-      // disarm-on-refusal verdict exists to prevent, and only the
-      // user's next accepted sign-in lifts the record. No retry.
+    if (!(error instanceof AuthenticationError)) {
+      this.#retryAfterTransientFailure(error)
       return false
     }
-    // A throttle says nothing about the pair, so its window keeps the
-    // retry — the deferred retry can itself be throttled, and without
-    // this the client would go dormant the moment it fires and fails. A
-    // transport blip arms no window, and the deferral is then a no-op.
-    this.#deferResumeToBackoffDeadline()
+    logFailure(this.logger, 'Session resume failed:', error)
+    this.#settleRefusedResume(error)
     return false
   }
 
   #resolvePersistedCredentials(): LoginCredentials | null {
     const { password, username } = this
     return username === '' || password === '' ? null : { password, username }
+  }
+
+  // The transient half of a failed resume: retried a minute later, with
+  // automatic sign-ins gated until then (`RESUME_RETRY_AFTER_FAILURE_MS`),
+  // and one log line per streak — the window would otherwise write one a
+  // minute for as long as the outage lasts. Nothing is recorded on the
+  // pair and no loss is announced: the credential was never refused.
+  #retryAfterTransientFailure(error: unknown): void {
+    if (
+      this.#failureStreaks.shouldReport(RESUME_SUBJECT, failureReason(error))
+    ) {
+      logFailure(
+        this.logger,
+        'Session resume failed, retried every minute:',
+        error,
+      )
+    }
+    this.#setLoginBackoffUntil(
+      Temporal.Now.instant().epochMilliseconds + RESUME_RETRY_AFTER_FAILURE_MS,
+    )
+    this.#backoffRetry.schedule(() => {
+      fireAndForget(
+        this.resumeSession(),
+        this.logger,
+        'Session restore after a transient failure failed:',
+      )
+    }, RESUME_RETRY_AFTER_FAILURE_MS)
   }
 
   async #runCycleAndCloseStreak<T extends readonly unknown[]>(
@@ -1408,6 +1481,27 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // stored credential the server has definitively refused falls
   // through to the loss branch even while a stale session keeps
   // `isAuthenticated()` reading `true`.
+  // A refusal the wire worded — a throttle or a definitive one. A
+  // throttle says nothing about the pair, so its window keeps the
+  // retry: the deferred retry can itself be throttled, and without this
+  // the client would go dormant the moment it fires and fails. A
+  // DEFINITIVE refusal is recorded as a verdict on the stored
+  // credential — what lets the loss-surfacing paths see a dead
+  // credential behind a session the refusal deliberately did not clear;
+  // the next ACCEPTED sign-in lifts it — and PARKS the pair: replaying it
+  // every window for the life of the process is the hammering the
+  // disarm-on-refusal verdict exists to prevent. No retry, and the loss
+  // is announced HERE: a refusal found by a deferred retry has no sync
+  // cycle after it to settle on, since the heartbeat was never armed.
+  #settleRefusedResume(error: AuthenticationError): void {
+    if (error instanceof AuthenticationThrottledError) {
+      this.#deferResumeToBackoffDeadline()
+      return
+    }
+    this.#isCredentialRefused = true
+    this.#emitAuthenticationLostOnce()
+  }
+
   #settleSyncCycle(epoch: number): void {
     if (this.#logOutEpoch !== epoch) {
       this.clearPersistedSession()
@@ -1419,12 +1513,26 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
       this.#syncManager.planNext()
       return
     }
-    if (this.#hasRecoverableState()) {
-      // Rescheduling would hammer the account with a doomed sign-in
-      // every cycle: stay disarmed and surface the loss instead — a
-      // successful authenticate() re-arms the sync through its
-      // enforced post-auth registry sync.
+    this.#settleUnservableCycle()
+  }
+
+  // The epilogue of a cycle that ended without a servable session.
+  // Definitive: rescheduling would hammer the account with a doomed
+  // sign-in every cycle, so stay disarmed and surface the loss instead —
+  // a successful authenticate() re-arms the sync through its enforced
+  // post-auth registry sync. Not definitive: a retry is scheduled (a
+  // transient failure's minute, a throttle's window) and owns the
+  // recovery, or nothing has tried yet and the heartbeat must — never a
+  // silent dormancy, never a loss announced over credentials nobody
+  // refused. Nothing to recover from (an unconfigured instance probed by
+  // a settings page) stays silent AND disarmed.
+  #settleUnservableCycle(): void {
+    if (this.#isLossDefinitive()) {
       this.#emitAuthenticationLostOnce()
+      return
+    }
+    if (this.#hasRecoverableState() && !this.#backoffRetry.isActive) {
+      this.#syncManager.planNext()
     }
   }
 

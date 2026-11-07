@@ -19,10 +19,33 @@ import type { RetryGuard } from './retry-guard.ts'
  * propagate unchanged so inner / outer policies can handle them in
  * isolation.
  */
+/**
+ * What a policy owns as an auth failure: the statuses, optionally
+ * narrowed by the response itself.
+ */
+export interface AuthFailureVocabulary {
+  /**
+   * Narrows a listed status by the response, for a wire that answers
+   * several failures with one status — Gizwits answers an invalid token
+   * and a server error alike with `400`.
+   */
+  readonly refine?: ((error: HttpError) => boolean) | undefined
+  /**
+   * Auth-failure statuses; defaults to `[401]`.
+   */
+  readonly statuses?: readonly number[] | undefined
+}
+
+const isStatusList = (
+  vocabulary: AuthFailureVocabulary | readonly number[],
+): vocabulary is readonly number[] => Array.isArray(vocabulary)
+
 export class AuthRetryPolicy implements ResiliencePolicy {
   readonly #guard: RetryGuard
 
   readonly #reauthenticate: () => Promise<boolean>
+
+  readonly #refine: ((error: HttpError) => boolean) | undefined
 
   readonly #statuses: readonly number[]
 
@@ -30,14 +53,24 @@ export class AuthRetryPolicy implements ResiliencePolicy {
    * Builds the policy from its guard, reauth hook and status vocabulary.
    * @param guard - Shared retry-budget limiter.
    * @param reauthenticate - Hook that refreshes the session; resolves `true` on success.
-   * @param statuses - Auth-failure statuses that trigger the retry; defaults to `[401]`.
+   * @param vocabulary - The auth-failure statuses that trigger the retry
+   * (`[401]` by default), or the statuses with a refinement that narrows
+   * them by the response itself.
    */
   public constructor(
     guard: RetryGuard,
     reauthenticate: () => Promise<boolean>,
-    statuses: readonly number[] = [HttpStatus.Unauthorized],
+    vocabulary: AuthFailureVocabulary | readonly number[] = [
+      HttpStatus.Unauthorized,
+    ],
   ) {
+    const { refine, statuses = [HttpStatus.Unauthorized] } = isStatusList(
+      vocabulary,
+    )
+      ? { refine: undefined, statuses: vocabulary }
+      : vocabulary
     this.#guard = guard
+    this.#refine = refine
     this.#reauthenticate = reauthenticate
     this.#statuses = statuses
   }
@@ -52,7 +85,11 @@ export class AuthRetryPolicy implements ResiliencePolicy {
    * @returns `true` for an owned auth failure, narrowing it.
    */
   public isAuthFailure(error: unknown): error is HttpError {
-    return isHttpError(error) && this.#statuses.includes(error.response.status)
+    return (
+      isHttpError(error) &&
+      this.#statuses.includes(error.response.status) &&
+      (this.#refine?.(error) ?? true)
+    )
   }
 
   /**

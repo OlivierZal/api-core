@@ -82,6 +82,7 @@ export {
   REDACTED,
 } from './observability/index.ts'
 export {
+  type AuthFailureVocabulary,
   AuthRetryPolicy,
   CompositePolicy,
   DEFAULT_TRANSIENT_RETRY_OPTIONS,
