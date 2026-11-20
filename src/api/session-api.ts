@@ -50,9 +50,6 @@ import type {
 } from './types.ts'
 import { SyncManager } from './sync-manager.ts'
 
-// Cool-down between consecutive auth-retry consumptions on the same
-// RetryGuard. Deliberately not configurable: adjusting it is more
-// likely to mask bugs than reflect a real product need.
 /**
  * How long a landed mutation parks the auto-sync tick: the upstream
  * applies a write asynchronously (a Classic unit keeps only the flagged
@@ -69,6 +66,9 @@ const SYNC_CYCLE_SUBJECT = 'sync-cycle'
 const requestSubject = (method: string, url: string): string =>
   `${method} ${url}`
 
+// Cool-down between consecutive auth-retry consumptions on the same
+// RetryGuard. Deliberately not configurable: adjusting it is more
+// likely to mask bugs than reflect a real product need.
 const DEFAULT_AUTH_RETRY_COOLDOWN_MS = 1000
 
 // Automatic re-login backoff after a REJECTED sign-in: an upstream that
