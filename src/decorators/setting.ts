@@ -21,7 +21,8 @@ interface HasSettingManager {
  * previous value. Never derive the key any other way.
  * @param target - The underlying accessor descriptor provided by the runtime.
  * @param context - The accessor decoration context carrying the property name.
- * @returns The replacement accessor that routes through `settingManager` when present.
+ * @returns The replacement accessor that routes through `settingManager` when
+ * present.
  * @category Decorators
  */
 export const setting = (

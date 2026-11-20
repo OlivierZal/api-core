@@ -21,7 +21,8 @@ export class APICallResponseData extends APICallLogData {
    * loggable snapshot.
    * @param response - Normalized response to snapshot.
    * @param requestConfig - Request configuration the response answered.
-   * @param redaction - Redaction engine carrying the consumer's sensitive-key vocabulary; defaults to the base one.
+   * @param redaction - Redaction engine carrying the consumer's sensitive-key
+   * vocabulary; defaults to the base one.
    */
   public constructor(
     response?: HttpResponse,

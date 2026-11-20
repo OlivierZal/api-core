@@ -22,7 +22,9 @@ const parseHttpDate = (
   value: string,
   now: Temporal.Instant,
 ): Temporal.Instant | null => {
-  // eslint-disable-next-line unicorn/prefer-temporal -- `Retry-After` HTTP-dates (IMF-fixdate) are not parsable by Temporal; `Date.parse` is the platform parser for them.
+  /* eslint-disable-next-line unicorn/prefer-temporal -- `Retry-After`
+     HTTP-dates (IMF-fixdate) are not parsable by Temporal; `Date.parse` is the
+     platform parser for them. */
   const dateMs = Date.parse(value)
   return Number.isNaN(dateMs) || dateMs <= now.epochMilliseconds
     ? null
@@ -123,7 +125,8 @@ export class RateLimitGate {
    * call site.
    * @param logger - Logger used to emit the error line.
    * @param logger.error - Error-level log sink.
-   * @param retryAfter - Header value from the 429 response (delta-seconds or HTTP-date).
+   * @param retryAfter - Header value from the 429 response (delta-seconds or
+   * HTTP-date).
    */
   public recordAndLog(
     logger: { error: (...data: unknown[]) => void },

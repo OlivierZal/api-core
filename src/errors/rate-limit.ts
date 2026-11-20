@@ -29,7 +29,8 @@ export class RateLimitError extends APIError {
    * supplies no window.
    * @param message - Human-readable error description.
    * @param options - Rate-limit window metadata plus optional cause.
-   * @param options.retryAfter - `Temporal.Duration` until retry is allowed, or `null`.
+   * @param options.retryAfter - `Temporal.Duration` until retry is allowed, or
+   * `null`.
    * @param options.unblockAt - Absolute unblock `Temporal.Instant`, or `null`.
    * @param options.cause - Original error that triggered this one.
    */

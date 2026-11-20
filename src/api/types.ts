@@ -157,7 +157,8 @@ export type RequestStartEvent = RequestLifecycleContext
  */
 export interface SettingManager {
   /**
-   * Retrieve a setting value by key. Returns the stored value, or `null`/`undefined` if absent.
+   * Retrieve a setting value by key. Returns the stored value, or
+   * `null`/`undefined` if absent.
    */
   readonly get: (key: string) => string | null | undefined
   /**
