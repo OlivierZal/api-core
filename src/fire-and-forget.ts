@@ -13,7 +13,8 @@ export const fireAndForget = (
   logger: Logger,
   message: string,
 ): void => {
-  // eslint-disable-next-line unicorn/prefer-await -- the single fire-and-forget seam: rejections are logged, never propagated
+  /* eslint-disable-next-line unicorn/prefer-await -- the single fire-and-forget
+     seam: rejections are logged, never propagated */
   promise.catch((error: unknown) => {
     logger.error(message, error)
   })

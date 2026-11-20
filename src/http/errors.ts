@@ -79,13 +79,16 @@ export class HttpError extends Error {
    * of the request that produced it.
    * @param message - Human-readable error description.
    * @param options - Response triplet plus an optional request snapshot.
-   * @param options.response - Normalized response that carried the non-2xx status.
+   * @param options.response - Normalized response that carried the non-2xx
+   * status.
    * @param options.response.data - Parsed (or raw text) response body.
-   * @param options.response.headers - HTTP headers, multi-valued `set-cookie` preserved as an array.
+   * @param options.response.headers - HTTP headers, multi-valued `set-cookie`
+   * preserved as an array.
    * @param options.response.status - HTTP status code.
    * @param options.config - Snapshot of the request that triggered the error.
    * @param options.cause - Original error that triggered this one.
-   * @param options.redaction - Redaction engine carrying the consumer's sensitive-key vocabulary.
+   * @param options.redaction - Redaction engine carrying the consumer's
+   * sensitive-key vocabulary.
    */
   public constructor(
     message: string,

@@ -48,7 +48,8 @@ const parseToInstant = (
  * before its real expiry (default 0 = real expiry).
  * @param zone - IANA timezone for offset-less inputs; defaults to the
  * runtime system zone.
- * @returns `true` if the expiry is past (or within `aheadMs`) or cannot be parsed, `false` otherwise.
+ * @returns `true` if the expiry is past (or within `aheadMs`) or cannot be
+ * parsed, `false` otherwise.
  */
 export const isSessionExpired = (
   expiry: string,

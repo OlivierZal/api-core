@@ -216,9 +216,12 @@ export class HttpClient {
    * @param root0.baseURL - Base URL prepended to every request URL.
    * @param root0.dispatcher - Optional undici dispatcher.
    * @param root0.headers - Default headers merged into every request.
-   * @param root0.redaction - Redaction engine applied to thrown {@link HttpError} snapshots; defaults to the base vocabulary.
-   * @param root0.describeFailure - Reader of a non-2xx response's message; defaults to the status alone.
-   * @param root0.timeout - Per-request timeout in milliseconds (`0` disables it).
+   * @param root0.redaction - Redaction engine applied to thrown
+   * {@link HttpError} snapshots; defaults to the base vocabulary.
+   * @param root0.describeFailure - Reader of a non-2xx response's message;
+   * defaults to the status alone.
+   * @param root0.timeout - Per-request timeout in milliseconds (`0` disables
+   * it).
    */
   public constructor({
     baseURL,
@@ -272,7 +275,9 @@ export class HttpClient {
       })
     }
     return {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- parsed body is structurally `unknown`; caller provides the narrow `T`
+      /* eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion --
+         parsed body is structurally `unknown`; caller provides the narrow
+         `T` */
       data: parsed as T,
       headers: responseHeaders,
       status: response.status,

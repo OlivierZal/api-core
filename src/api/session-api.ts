@@ -389,10 +389,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @param root1 - Subclass-supplied options.
    * @param root1.authFailureStatuses - Statuses that arm the reactive re-auth.
    * @param root1.defaultSyncIntervalMinutes - Subclass sync cadence default.
-   * @param root1.isAuthFailure - Narrows the listed statuses by the response body.
+   * @param root1.isAuthFailure - Narrows the listed statuses by the response
+   * body.
    * @param root1.logLabel - Optional label prefixed to every log line.
    * @param root1.rateLimitHours - Rate-limit window; omit to build no gate.
-   * @param root1.redaction - Redaction engine for the emitted log lines; defaults to the base vocabulary.
+   * @param root1.redaction - Redaction engine for the emitted log lines;
+   * defaults to the base vocabulary.
    * @param root1.transport - The already-built HTTP transport.
    */
   protected constructor(
@@ -567,9 +569,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   /**
    * Sign in with explicit credentials. The server refuses them in
    * protocol-specific ways, which the subclass's `doAuthenticate` hook
-   * normalises into {@link AuthenticationError}. Successful return guarantees the
-   * registry reflects server state — the post-auth sync is enforced
-   * here so subclasses cannot forget it.
+   * normalises into {@link AuthenticationError}. Successful return guarantees
+   * the registry reflects server state — the post-auth sync is enforced here so
+   * subclasses cannot forget it.
    *
    * Use {@link resumeSession} for a best-effort restore from
    * persisted credentials that logs + swallows errors.
@@ -578,7 +580,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * rejected attempt leaves the stored pair and any live session
    * untouched (the backoff still arms and the error still surfaces).
    * @param credentials - Explicit username/password.
-   * @throws {@link AuthenticationError} when the server refuses the credentials.
+   * @throws {@link AuthenticationError} when the server refuses the
+   * credentials.
    * @throws {@link RegistrySyncError} when the enforced post-auth sync
    * fails — the sync's own failure (a validation rejection, a
    * transport failure, any registry error) rides its `cause`. The
@@ -607,7 +610,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   }
 
   /**
-   * Cancels any pending auto-sync timer; subsequent `setSyncInterval` or sync calls re-arm it.
+   * Cancels any pending auto-sync timer; subsequent `setSyncInterval` or sync
+   * calls re-arm it.
    */
   public clearSync(): void {
     this.#syncManager.clear()
@@ -737,7 +741,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   }
 
   /**
-   * Releases the auto-sync timer and any retry-guard window; the instance must not be reused after disposal.
+   * Releases the auto-sync timer and any retry-guard window; the instance must
+   * not be reused after disposal.
    */
   public [Symbol.dispose](): void {
     this.#failureStreaks.clear()

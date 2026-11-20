@@ -168,7 +168,8 @@ describe(SyncManager, () => {
     // Advance partway through the first schedule, then re-schedule.
     await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
     manager.planNext()
-    // The first timer would have fired at 2 * MS_PER_MINUTE from start; ensure it did not.
+    // The first timer would have fired at 2 * MS_PER_MINUTE from start; ensure
+    // it did not.
     await vi.advanceTimersByTimeAsync(MS_PER_MINUTE)
 
     expect(syncFunction).not.toHaveBeenCalled()

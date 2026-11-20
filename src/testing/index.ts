@@ -304,7 +304,8 @@ export const createUnauthorizedError = (url = '/test'): HttpError =>
  * model both host shapes the `setting` decorator distinguishes.
  * @param initial - The seeded entries.
  * @param root1 - Options.
- * @param root1.hasUnset - Whether the manager delegates `unset` (defaults to `false`).
+ * @param root1.hasUnset - Whether the manager delegates `unset` (defaults to
+ * `false`).
  * @returns The manager and its two write spies.
  * @category Testing
  */

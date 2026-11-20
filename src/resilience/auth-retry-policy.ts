@@ -52,7 +52,8 @@ export class AuthRetryPolicy implements ResiliencePolicy {
   /**
    * Builds the policy from its guard, reauth hook and status vocabulary.
    * @param guard - Shared retry-budget limiter.
-   * @param reauthenticate - Hook that refreshes the session; resolves `true` on success.
+   * @param reauthenticate - Hook that refreshes the session; resolves `true` on
+   * success.
    * @param vocabulary - The auth-failure statuses that trigger the retry
    * (`[401]` by default), or the statuses with a refinement that narrows
    * them by the response itself.
