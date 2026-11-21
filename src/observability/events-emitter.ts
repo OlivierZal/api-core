@@ -99,9 +99,9 @@ export class LifecycleEmitter<TSyncParams = unknown> {
    * `emit*` family): a consumer's sync decorator awaits the
    * notification so a decorated mutation resolves only after the
    * observer has run. The non-throwing contract is the same — failures
-   * route through the shared reporter.
+   * route through the shared reporter. The promise resolves once the
+   * observer settled (or was absent).
    * @param args - Consumer-defined sync parameters, forwarded verbatim.
-   * @returns Resolves once the observer settled (or was absent).
    */
   public async emitSyncComplete(
     ...args: Parameters<SyncCallback<TSyncParams>>

@@ -28,6 +28,7 @@
  * Each policy owns exactly one concern and propagates anything
  * outside it, so the composition is deterministic and each stage is
  * testable in isolation.
+ * @packageDocumentation
  */
 export {
   type AuthFailureVocabulary,

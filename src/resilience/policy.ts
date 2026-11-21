@@ -18,6 +18,7 @@
 export interface ResiliencePolicy {
   /**
    * Runs the caller's attempt under this policy's semantics.
+   * @template T - Whatever the attempt resolves to.
    */
   run: <T>(attempt: () => Promise<T>) => Promise<T>
 }
@@ -49,6 +50,7 @@ export class CompositePolicy implements ResiliencePolicy {
 
   /**
    * Runs the attempt through the composed pipeline.
+   * @template T - Whatever the attempt resolves to.
    * @param attempt - The request attempt to decorate.
    * @returns The attempt's resolved value.
    */

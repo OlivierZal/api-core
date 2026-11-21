@@ -212,15 +212,15 @@ export class HttpClient {
    * Builds an HTTP client pinned to a base URL, request-timeout budget,
    * and optional default headers / undici dispatcher / redaction
    * vocabulary.
-   * @param root0 - Client configuration.
-   * @param root0.baseURL - Base URL prepended to every request URL.
-   * @param root0.dispatcher - Optional undici dispatcher.
-   * @param root0.headers - Default headers merged into every request.
-   * @param root0.redaction - Redaction engine applied to thrown
+   * @param config - Client configuration.
+   * @param config.baseURL - Base URL prepended to every request URL.
+   * @param config.dispatcher - Optional undici dispatcher.
+   * @param config.headers - Default headers merged into every request.
+   * @param config.redaction - Redaction engine applied to thrown
    * {@link HttpError} snapshots; defaults to the base vocabulary.
-   * @param root0.describeFailure - Reader of a non-2xx response's message;
+   * @param config.describeFailure - Reader of a non-2xx response's message;
    * defaults to the status alone.
-   * @param root0.timeout - Per-request timeout in milliseconds (`0` disables
+   * @param config.timeout - Per-request timeout in milliseconds (`0` disables
    * it).
    */
   public constructor({
@@ -241,9 +241,11 @@ export class HttpClient {
 
   /**
    * Issues an HTTP request and returns the normalized response.
+   * @template T - Type of the parsed response body, chosen by the caller
+   * and returned as `data` unchecked.
    * @param config - Per-request configuration.
    * @returns The normalized `{ data, status, headers }` triple.
-   * @throws {@link HttpError} when the response status is not 2xx.
+   * @throws An {@link HttpError} when the response status is not 2xx.
    */
   public async request<T = unknown>(
     config: HttpRequestConfig,

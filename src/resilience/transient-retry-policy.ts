@@ -47,6 +47,7 @@ export class TransientRetryPolicy implements ResiliencePolicy {
 
   /**
    * Runs the attempt under the shared transient-retry budget.
+   * @template T - Whatever the attempt resolves to.
    * @param attempt - The request attempt to decorate.
    * @returns The attempt's resolved value.
    */

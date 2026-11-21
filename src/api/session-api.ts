@@ -290,8 +290,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // Per-subject failure streaks (`#shouldReportRequestFailure`).
   readonly #failureStreaks = new FailureStreaks()
 
-  // One event per loss episode: rearmed by any cycle observed
-  // authenticated again (including the post-auth sync of a re-login).
   // Cleared by every `logOut`, set by every acceptance. It answers the
   // one question a raced sign-out cannot: has a sign-in CLAIMED the
   // session since the user asked to end it? If one has, a flight that
@@ -299,6 +297,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   // the claimant established.
   #hasAcceptedSinceLogOut = false
 
+  // One event per loss episode: rearmed by any cycle observed
+  // authenticated again (including the post-auth sync of a re-login).
   #hasEmittedAuthenticationLost = false
 
   // Verdict recorded against the STORED credential: the server
@@ -381,22 +381,23 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   /**
    * Seats the shared session machinery over the user's configuration
    * and the subclass's own knowledge.
-   * @param root0 - User-facing configuration.
-   * @param root0.abortSignal - Shutdown signal applied to every request.
-   * @param root0.events - Lifecycle callbacks.
-   * @param root0.logger - Custom logger; defaults to `console`.
-   * @param root0.settingManager - External persistence adapter.
-   * @param root0.syncIntervalMinutes - Auto-sync cadence override.
-   * @param root1 - Subclass-supplied options.
-   * @param root1.authFailureStatuses - Statuses that arm the reactive re-auth.
-   * @param root1.defaultSyncIntervalMinutes - Subclass sync cadence default.
-   * @param root1.isAuthFailure - Narrows the listed statuses by the response
+   * @param config - User-facing configuration.
+   * @param config.abortSignal - Shutdown signal applied to every request.
+   * @param config.events - Lifecycle callbacks.
+   * @param config.logger - Custom logger; defaults to `console`.
+   * @param config.settingManager - External persistence adapter.
+   * @param config.syncIntervalMinutes - Auto-sync cadence override.
+   * @param options - Subclass-supplied options.
+   * @param options.authFailureStatuses - Statuses that arm the reactive
+   * re-auth.
+   * @param options.defaultSyncIntervalMinutes - Subclass sync cadence default.
+   * @param options.isAuthFailure - Narrows the listed statuses by the response
    * body.
-   * @param root1.logLabel - Optional label prefixed to every log line.
-   * @param root1.rateLimitHours - Rate-limit window; omit to build no gate.
-   * @param root1.redaction - Redaction engine for the emitted log lines;
+   * @param options.logLabel - Optional label prefixed to every log line.
+   * @param options.rateLimitHours - Rate-limit window; omit to build no gate.
+   * @param options.redaction - Redaction engine for the emitted log lines;
    * defaults to the base vocabulary.
-   * @param root1.transport - The already-built HTTP transport.
+   * @param options.transport - The already-built HTTP transport.
    */
   protected constructor(
     {
@@ -581,9 +582,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * rejected attempt leaves the stored pair and any live session
    * untouched (the backoff still arms and the error still surfaces).
    * @param credentials - Explicit username/password.
-   * @throws {@link AuthenticationError} when the server refuses the
+   * @throws An {@link AuthenticationError} when the server refuses the
    * credentials.
-   * @throws {@link RegistrySyncError} when the enforced post-auth sync
+   * @throws A {@link RegistrySyncError} when the enforced post-auth sync
    * fails — the sync's own failure (a validation rejection, a
    * transport failure, any registry error) rides its `cause`. The
    * credential check happened FIRST, so the session is left signed in
@@ -986,8 +987,8 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    * @template T - Whatever the subclass work resolves to.
    * @param work - Subclass closure that fetches and syncs the registry.
    * @returns The work's resolved value.
-   * @throws Whatever `work` raises — see
-   *   {@link runBestEffortSyncCycle} for the swallowing variant.
+   * @throws Whatever `work` raises — see {@link runBestEffortSyncCycle}
+   * for the swallowing variant.
    */
   protected async runSyncCycle<T>(work: () => Promise<T>): Promise<T> {
     const epoch = this.#logOutEpoch
@@ -1193,11 +1194,11 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     this.events.emitAuthenticationLost()
   }
 
-  // Post-`doAuthenticate` epilogue, split on the logOut epoch: a
-  // logOut that landed while the sign-in round-trip was in flight
-  // (e.g. the user signed out during a background resume) wins —
-  // discard what the login just stored and stay signed out. Otherwise
-  // clear the backoff gate and run the enforced post-auth sync.
+  // Epilogue of an accepted sign-in this client still owns: the backoff
+  // gate and the retry it deferred are cleared, the resume streak
+  // closes, and the enforced post-auth sync runs. A sign-out that
+  // landed during the round-trip never reaches this point:
+  // `#settleAcceptedSignIn` settles it on the logOut epoch.
   async #finishLogin(): Promise<void> {
     this.#setLoginBackoffUntil(null)
     // The pause is over, so the retry it was deferred to has nothing
@@ -1477,16 +1478,6 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     await this.#applyAcceptedLogin(credentials)
   }
 
-  // Sync-cycle epilogue, split on the logOut epoch. A logOut that
-  // landed while the cycle was in flight: its request completed with
-  // the pre-sign-out session and repopulated the registry — re-run the
-  // wipe so the sign-out sticks, and leave the timer disarmed.
-  // Unauthenticated with nothing to recover from (e.g. a settings page
-  // probing a never-configured API) stays silent AND disarmed. The
-  // signed-in read is the RECORDED verdict, not the bare session: a
-  // stored credential the server has definitively refused falls
-  // through to the loss branch even while a stale session keeps
-  // `isAuthenticated()` reading `true`.
   // A refusal the wire worded — a throttle or a definitive one. A
   // throttle says nothing about the pair, so its window keeps the
   // retry: the deferred retry can itself be throttled, and without this
@@ -1508,6 +1499,16 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     this.#emitAuthenticationLostOnce()
   }
 
+  // Sync-cycle epilogue, split on the logOut epoch. A logOut that
+  // landed while the cycle was in flight: its request completed with
+  // the pre-sign-out session and repopulated the registry — re-run the
+  // wipe so the sign-out sticks, and leave the timer disarmed.
+  // Unauthenticated with nothing to recover from (e.g. a settings page
+  // probing a never-configured API) stays silent AND disarmed. The
+  // signed-in read is the RECORDED verdict, not the bare session: a
+  // stored credential the server has definitively refused falls
+  // through to the loss branch even while a stale session keeps
+  // `isAuthenticated()` reading `true`.
   #settleSyncCycle(epoch: number): void {
     if (this.#logOutEpoch !== epoch) {
       this.clearPersistedSession()
@@ -1566,8 +1567,9 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     )
   }
 
-  // The innermost wrapper around the raw dispatch, GET only: a retry
-  // re-sends a read, never a write.
+  // The innermost wrapper around the raw dispatch, on reads only (a
+  // GET, or a POST the caller declared idempotent): a retry re-sends a
+  // read, never a write.
   #transientRetryPolicy(context: RequestLifecycleContext): ResiliencePolicy {
     return new TransientRetryPolicy(
       {
