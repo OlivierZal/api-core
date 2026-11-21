@@ -35,9 +35,10 @@ export class RateLimitPolicy implements ResiliencePolicy {
   /**
    * Refuses fast while the gate is paused, otherwise runs the attempt
    * and records any 429 that comes back.
+   * @template T - Whatever the attempt resolves to.
    * @param attempt - The request attempt to decorate.
    * @returns The attempt's resolved value.
-   * @throws {@link RateLimitError} while the gate is paused.
+   * @throws A {@link RateLimitError} while the gate is paused.
    */
   public async run<T>(attempt: () => Promise<T>): Promise<T> {
     // Read all three fields from one `Temporal.Now.instant()` capture

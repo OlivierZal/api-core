@@ -193,6 +193,7 @@ const computeDelay = (
  * and rethrows once `maxRetries` is exhausted or the error is judged
  * non-retryable. If `options.signal` aborts during a backoff sleep, the
  * loop exits with the signal's reason instead of waiting out the delay.
+ * @template T - Whatever the operation resolves to.
  * @param operation - The async function to attempt; will be invoked up
  * to `maxRetries + 1` times.
  * @param options - Backoff parameters and retry predicate.

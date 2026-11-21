@@ -96,11 +96,13 @@ export class AuthRetryPolicy implements ResiliencePolicy {
 
   /**
    * Runs the attempt, replaying it once after a successful reauth.
+   * @template T - Whatever the attempt resolves to.
    * @param attempt - The request attempt to decorate.
    * @returns The attempt's resolved value.
-   * @throws {@link HttpError} The original error, when the guard
-   * refuses the window or the reauth hook fails (anything not an owned
-   * auth failure propagates unchanged).
+   * @throws The original {@link HttpError}, when the guard refuses the
+   * window or the reauth hook answers `false` (anything not an owned
+   * auth failure propagates unchanged). A reauth hook that rejects
+   * surfaces its own rejection, and a replay that fails its own error.
    */
   public async run<T>(attempt: () => Promise<T>): Promise<T> {
     try {

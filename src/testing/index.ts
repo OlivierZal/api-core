@@ -234,6 +234,7 @@ export const mockFetchResponse = (
  * `{ data, headers, status }`, the core's `HttpResponse<T>`. One helper
  * for every suite that spies on the transport — the two SDKs and one
  * of this package's own suites each kept a byte-identical copy.
+ * @template T - Type of the parsed body the envelope carries as `data`.
  * @param data - The parsed body the transport would return.
  * @param headers - Response headers (defaults to none).
  * @param status - Response status (defaults to 200).
@@ -250,12 +251,12 @@ export const mockHttpResponse = <T>(
  * An {@link HttpError} carrying a minimal request snapshot and an empty
  * response body — the shape the resilience policies and the session
  * mechanism branch on.
- * @param root0 - The error's coordinates.
- * @param root0.message - Human-readable error description.
- * @param root0.method - Request method (defaults to `get`).
- * @param root0.responseHeaders - Response headers (default none).
- * @param root0.status - Response status.
- * @param root0.url - Request URL.
+ * @param options - The error's coordinates.
+ * @param options.message - Human-readable error description.
+ * @param options.method - Request method (defaults to `get`).
+ * @param options.responseHeaders - Response headers (default none).
+ * @param options.status - Response status.
+ * @param options.url - Request URL.
  * @returns The built error, its snapshot redacted through the base
  * vocabulary like any other.
  * @category Testing
@@ -303,8 +304,8 @@ export const createUnauthorizedError = (url = '/test'): HttpError =>
  * its writes. `unset` is delegated only on request, so a suite can
  * model both host shapes the `setting` decorator distinguishes.
  * @param initial - The seeded entries.
- * @param root1 - Options.
- * @param root1.hasUnset - Whether the manager delegates `unset` (defaults to
+ * @param options - Which host shape the store models.
+ * @param options.hasUnset - Whether the manager delegates `unset` (defaults to
  * `false`).
  * @returns The manager and its two write spies.
  * @category Testing
