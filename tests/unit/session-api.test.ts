@@ -2236,7 +2236,7 @@ describe(SessionAPI, () => {
 
       expect(logger.log).toHaveBeenCalledWith(
         expect.stringContaining(
-          `Transient server error on /callback?token=${REDACTED}: retry 1`,
+          `Transient failure on /callback?token=${REDACTED} (`,
         ),
       )
       expect(loggedLines(logger).join('\n')).not.toContain(VENDOR_SECRET)
@@ -2559,8 +2559,42 @@ describe(SessionAPI, () => {
       vi.useRealTimers()
 
       expect(onRequestRetry).toHaveBeenCalledTimes(1)
+      // The line names what is retried and why, the delay in whole
+      // milliseconds: the backoff draws a jittered fraction.
       expect(logger.log).toHaveBeenCalledWith(
-        expect.stringContaining('Transient server error on /devices: retry 1'),
+        expect.stringMatching(
+          /^Transient failure on \/devices \(HttpError: Request failed with status code 502\): retry 1 in \d+ ms$/v,
+        ),
+      )
+    })
+
+    // A retried read is as often a host never reached as a server
+    // status: the line says which.
+    it('names the transport failure a retried read met', async () => {
+      const logger = createLogger()
+      using harness = new Harness({ logger })
+      vi.useFakeTimers()
+      mockFetch.mockRejectedValueOnce(
+        new TypeError('fetch failed', {
+          cause: Object.assign(
+            new Error('getaddrinfo EAI_AGAIN api.example.com'),
+            { code: 'EAI_AGAIN' },
+          ),
+        }),
+      )
+      respondWith(HTTP_OK)
+
+      const pending = harness.callRequest('get', '/devices')
+      await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS)
+
+      await expect(pending).resolves.toBe(HTTP_OK)
+
+      vi.useRealTimers()
+
+      expect(logger.log).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^Transient failure on \/devices \(TypeError: fetch failed — caused by Error: getaddrinfo EAI_AGAIN api\.example\.com \(EAI_AGAIN\)\): retry 1 in \d+ ms$/v,
+        ),
       )
     })
 

@@ -15,6 +15,7 @@ import {
   type HttpResponse,
   isHttpError,
 } from '../http/index.ts'
+import { failureCauseChain } from '../observability/failure-log.ts'
 import {
   FailureStreaks,
   failureReason,
@@ -1577,9 +1578,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
         ): void => {
           // The URL is request material like any other: a token can
           // ride inline in its query (`?code=…`), so it goes through
-          // the vocabulary before reaching the log line.
+          // the vocabulary before reaching the log line. The cause is
+          // named: a retried read is as often a transport failure as
+          // a server status, and a host never reached is no server
+          // error.
           this.logger.log(
-            `Transient server error on ${this.#redaction.redactUrl(context.url)}: retry ${String(retryAttempt)} in ${String(delayMs)} ms`,
+            `Transient failure on ${this.#redaction.redactUrl(context.url)} (${failureCauseChain(error)}): retry ${String(retryAttempt)} in ${String(Math.round(delayMs))} ms`,
           )
           this.events.emitRetry({
             ...context,
