@@ -55,7 +55,10 @@ const FETCH_FAILED_CHAIN =
   'TypeError: fetch failed — caused by Error: Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)'
 
 describe(isKnownFailure, () => {
-  it.each([
+  // Typed for what the function takes: left to inference, a table of
+  // errors is reduced to one of their classes, which every row then
+  // passes for.
+  it.each<[name: string, error: unknown]>([
     ['an HttpError', createServerError(503)],
     ['a refused credential', new AuthenticationError('rejected')],
     ['a validation failure', new ValidationError('refused', { context: 'x' })],
@@ -80,7 +83,7 @@ describe(isKnownFailure, () => {
 
   // A wrapper is judged by what it wraps: the verdict's type adds
   // nothing to a bug's location, and the stack under its cause is it.
-  it.each([
+  it.each<[name: string, error: unknown]>([
     ['a plain error', new Error('boom')],
     ['another TypeError', new TypeError('x is not a function')],
     ['a RangeError', new RangeError('out of range')],
