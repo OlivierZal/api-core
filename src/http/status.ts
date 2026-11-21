@@ -5,6 +5,7 @@
  *
  * Restricted to the codes the consuming SDKs actually branch on —
  * adding more here without a real call site is dead weight.
+ * @category HTTP
  */
 export const HttpStatus = {
   /**
