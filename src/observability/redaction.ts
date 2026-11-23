@@ -232,7 +232,7 @@ const createUrlRedaction =
  * @param options.personalDataKeys - User-entered or identifying fields
  * the SDK names, in any casing.
  * @returns The bound redaction engine.
- * @throws {TypeError} When an exemption names a key that is not a
+ * @throws A `TypeError` when an exemption names a key that is not a
  * declared personal-data key, or one that also names a credential.
  */
 export const createRedaction = (
