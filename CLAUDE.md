@@ -178,6 +178,37 @@ SDKs re-export it exactly like `RegistrySyncError`.
   construction-time snapshot) and `session-api.test.ts` (both dispatch
   lines beside the credential key, the error line through a transport
   that missed it, and the verbatim print when nothing is declared).
+- **A personal-data key can name something else under ONE parent, and
+  the SDK says where (2.5.0, 2026-11-23).** A com.melcloud diagnostic
+  report printed the full name of the Classic account holder:
+  `LoginData.Name`. melcloud-api had left the bare `name` key OUT of
+  its personal tier on purpose — Home spells a building's name and a
+  device SETTING's name with the same word
+  (`settings: [{ name: 'Power', value }]`), a key is blanked wherever
+  it rides, and a dump without its setting names diagnoses nothing — so
+  every other `name` on both wires stayed in clear with it: the account
+  holder, the buildings, the floors, the areas (measured the same day
+  on real payloads through the SDK's own engine, key paths only). The
+  engine is a key-name vocabulary and stays one; what it lacked was a
+  way to take ONE seat back. `RedactionOptions.notPersonalUnder` maps
+  an enclosing key to the personal-data keys that keep their value in
+  the objects directly under it: `{ settings: ['name'] }`. Four rules
+  hold it. The direction is deny-by-default: the word is declared
+  personal and one seat is exempted, never the reverse — a list of the
+  parents under which `name` IS personal cannot name the root of a
+  payload (a Classic building sits at the root of `/User/ListDevices`),
+  and it leaves the next `name` a wire grows in clear until someone
+  reads a report. The enclosing key is the NEAREST one, an array
+  between the two is transparent, and JSON text riding under a key is
+  walked under that key. The flat seats (`isSensitive`: a header, a
+  query pair, a form-encoded pair) know no parent and keep the personal
+  reading. And an exemption can only name a declared personal-data key
+  that is not also a credential: `createRedaction` throws on any other
+  when the engine is built, so a credential can never be printed
+  through this option and a mistyped exemption cannot pass for a
+  working one. Pinned in `redaction.test.ts` ("a personal-data key
+  that names something else under one parent" and the three refusals),
+  mutation-proved: ten mutations, each killed.
 - **One record, one line, bodies bounded (1.11.0 and 1.12.0,
   2026-10-12).** `APICallLogData.toString()` emits compact JSON, and a
   `requestData`/`responseData` whose redacted serialisation exceeds

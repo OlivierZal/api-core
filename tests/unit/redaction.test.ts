@@ -109,6 +109,123 @@ describe.concurrent(createRedaction, () => {
     ).toStrictEqual({ ContextKey: REDACTED, givenDisplayName: 'Living room' })
   })
 
+  // One word can name a person's entry in one object and a wire's own
+  // label in another: MELCloud spells an account holder, a building and
+  // a device SETTING `name`. A key is blanked wherever it rides, so the
+  // SDK declares the word personal and names the one seat where it is
+  // not — the enclosing key the objects sit under, arrays aside.
+  describe('a personal-data key that names something else under one parent', () => {
+    const redaction = createRedaction(['contextkey'], {
+      notPersonalUnder: { settings: ['name'] },
+      personalDataKeys: ['name'],
+    })
+
+    it('keeps the key under the declared parent and blanks it everywhere else', () => {
+      expect(
+        redaction.redactValue({
+          buildings: [
+            {
+              name: 'Home',
+              units: [
+                {
+                  id: 'unit-1',
+                  settings: [
+                    { name: 'Power', value: 'True' },
+                    { name: 'OperationMode', value: 'Heat' },
+                  ],
+                },
+              ],
+            },
+          ],
+          LoginData: { ContextKey: 'secret', Name: 'Jane Doe' },
+        }),
+      ).toStrictEqual({
+        buildings: [
+          {
+            name: REDACTED,
+            units: [
+              {
+                id: 'unit-1',
+                settings: [
+                  { name: 'Power', value: 'True' },
+                  { name: 'OperationMode', value: 'Heat' },
+                ],
+              },
+            ],
+          },
+        ],
+        LoginData: { ContextKey: REDACTED, Name: REDACTED },
+      })
+    })
+
+    it('matches the parent and the key in any casing', () => {
+      expect(
+        redaction.redactValue({ Settings: [{ NAME: 'Power' }] }),
+      ).toStrictEqual({ Settings: [{ NAME: 'Power' }] })
+    })
+
+    it('reads the NEAREST enclosing key, not an ancestor', () => {
+      expect(
+        redaction.redactValue({
+          settings: [{ name: 'Power', owner: { name: 'Jane Doe' } }],
+        }),
+      ).toStrictEqual({
+        settings: [{ name: 'Power', owner: { name: REDACTED } }],
+      })
+    })
+
+    it('blanks the key at the root of a payload, where nothing encloses it', () => {
+      expect(redaction.redactValue([{ ID: 1, Name: 'Home' }])).toStrictEqual([
+        { ID: 1, Name: REDACTED },
+      ])
+    })
+
+    it('carries the enclosing key into JSON text riding under it', () => {
+      expect(
+        redaction.redactValue({
+          settings: '[{"name":"Power"}]',
+          user: '{"name":"Jane Doe"}',
+        }),
+      ).toStrictEqual({
+        settings: '[{"name":"Power"}]',
+        user: '{"name":"******"}',
+      })
+    })
+
+    // The flat seats know no enclosing key: a header, a query pair or a
+    // form-encoded pair named like the key is the personal reading.
+    it('keeps the flat seats on the personal reading', () => {
+      expect(redaction.isSensitive('name')).toBe(true)
+      expect(redaction.redactUrl('/rename?name=Home&id=1')).toBe(
+        `/rename?name=${REDACTED}&id=1`,
+      )
+      expect(
+        redaction.redactValue({ settings: 'name=Home&id=1' }),
+      ).toStrictEqual({ settings: `name=${REDACTED}&id=1` })
+    })
+  })
+
+  // An exemption is a statement about a PERSONAL key. One that names a
+  // credential would be a way to print a secret, and one that names a
+  // key the tier does not hold does nothing while reading as if it did:
+  // both are refused when the engine is built, where a suite sees them.
+  it.each([
+    ['a base credential key', { settings: ['password'] }, 'password'],
+    ['an injected credential key', { settings: ['ContextKey'] }, 'ContextKey'],
+    ['a key the personal tier does not hold', { settings: ['label'] }, 'label'],
+  ])('refuses an exemption that names %s', (_name, notPersonalUnder, key) => {
+    expect(() =>
+      createRedaction(['contextkey'], {
+        notPersonalUnder,
+        personalDataKeys: ['name', 'password'],
+      }),
+    ).toThrow(
+      new TypeError(
+        `\`${key}\` cannot be exempted under \`settings\`: only a declared personal-data key that names no credential can`,
+      ),
+    )
+  })
+
   it('redacts injected keys deep inside object payloads', () => {
     const redaction = createRedaction(['contextkey'])
 

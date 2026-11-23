@@ -32,6 +32,9 @@ export interface Redaction {
   /**
    * Whether a header or payload key names a secret — or a personal-data
    * field the SDK declared through {@link RedactionOptions.personalDataKeys}.
+   * The FLAT reading: a header, a query pair or a form-encoded pair has
+   * no enclosing key, so {@link RedactionOptions.notPersonalUnder}
+   * never applies here.
    * @param key - Header or payload key, in any casing.
    * @returns `true` when the value behind the key must be redacted.
    */
@@ -48,7 +51,9 @@ export interface Redaction {
   /**
    * Redacts every value whose key names a secret, walking nested
    * objects, arrays, JSON-encoded and form-encoded strings — the deep
-   * counterpart of {@link Redaction.isSensitive}.
+   * counterpart of {@link Redaction.isSensitive}, and the one seat that
+   * knows what encloses a key, so the one that honours
+   * {@link RedactionOptions.notPersonalUnder}.
    * @param value - Any payload: object, array, string or primitive.
    * @returns The value with sensitive entries replaced by {@link REDACTED}.
    */
@@ -63,6 +68,27 @@ export interface Redaction {
  * and a diagnostic report pasted into a public issue reproduces it.
  */
 export interface RedactionOptions {
+  /**
+   * The seats where a personal-data key names something else. A key is
+   * blanked wherever it rides, and one word can name a person's entry
+   * in one object and the wire's own label in another: `name` is an
+   * account holder and a building, and also the name of a device
+   * setting. Declaring the word leaves one way to keep the label, and
+   * this is it: each entry maps an ENCLOSING key to the personal-data
+   * keys that keep their value in the objects directly under it, in any
+   * casing. `{ settings: ['name'] }` keeps `name` in
+   * `settings: [{ name, value }]` and blanks it everywhere else, the
+   * root of a payload included. The enclosing key is the nearest one
+   * (an array between the two is transparent), and it follows JSON
+   * text riding under it.
+   *
+   * Only a declared personal-data key that names no credential can be
+   * exempted: {@link createRedaction} throws on any other, so a
+   * credential can never be printed through this option and an
+   * exemption that would do nothing never passes for one that does.
+   */
+  readonly notPersonalUnder?:
+    Readonly<Record<string, Iterable<string>>> | undefined
   /**
    * User-entered or identifying fields the SDK names on its wire — a
    * device's display name, an account holder's name, a postal address —
@@ -118,32 +144,65 @@ const createFormEncodedRedaction =
     return keysToRedact.length > 0 ? params.toString() : undefined
   }
 
+// Whether the value behind `key` must be blanked in an object sitting
+// under `parent` — `undefined` at the root of a payload.
+type SeatedKeySensitivity = (key: string, parent?: string) => boolean
+
 const createValueRedaction = (
-  isSensitive: KeySensitivity,
+  isSensitiveUnder: SeatedKeySensitivity,
   redactFormEncoded: (value: string) => string | undefined,
 ): ((value: unknown) => unknown) => {
-  const redactValue = (value: unknown): unknown => {
+  // `parent` is the key the value rides under. An array hands it on to
+  // its items and JSON text to what it parses to: both are the same
+  // value in another dress, so the objects inside are still "under" it.
+  const redactUnder = (value: unknown, parent?: string): unknown => {
     if (typeof value === 'string') {
       const parsed = parseJsonText(value)
       return parsed === undefined
         ? (redactFormEncoded(value) ?? value)
-        : JSON.stringify(redactValue(parsed))
+        : JSON.stringify(redactUnder(parsed, parent))
     }
     if (typeof value !== 'object' || value === null) {
       return value
     }
     if (Array.isArray(value)) {
-      return value.map((item: unknown) => redactValue(item))
+      return value.map((item: unknown) => redactUnder(item, parent))
     }
     return Object.fromEntries(
       Object.entries(value).map(([key, property]) => [
         key,
-        isSensitive(key) ? REDACTED : redactValue(property),
+        isSensitiveUnder(key, parent) ? REDACTED : redactUnder(property, key),
       ]),
     )
   }
-  return redactValue
+  return (value) => redactUnder(value)
 }
+
+// The exemptions as the walk reads them: enclosing key to the keys kept
+// under it, both lower-cased like the vocabulary. Built once, and the
+// only place an exemption is judged: one that names a credential would
+// print a secret, one that names a key outside the personal tier would
+// do nothing while reading as if it did, so both throw here, where the
+// suite of the SDK that wrote it sees them.
+const createKeptKeys = (
+  notPersonalUnder: Readonly<Record<string, Iterable<string>>>,
+  isExemptible: KeySensitivity,
+): ReadonlyMap<string, ReadonlySet<string>> =>
+  new Map(
+    Object.entries(notPersonalUnder).map(([parent, keys]) => [
+      parent.toLowerCase(),
+      new Set(
+        Iterator.from(keys).map((key) => {
+          if (!isExemptible(key)) {
+            throw new TypeError(
+              `\`${key}\` cannot be exempted under \`${parent}\`: only a declared personal-data key that names no credential can`,
+            )
+          }
+          return key.toLowerCase()
+        }),
+      ),
+    ]),
+  )
 
 const createUrlRedaction =
   (redactFormEncoded: (value: string) => string | undefined) =>
@@ -168,13 +227,17 @@ const createUrlRedaction =
  * casing, added on top of the base vocabulary.
  * @param options - The personal-data tier; omit it to redact
  * credentials alone.
+ * @param options.notPersonalUnder - The enclosing keys under which a
+ * personal-data key names something else and keeps its value.
  * @param options.personalDataKeys - User-entered or identifying fields
  * the SDK names, in any casing.
  * @returns The bound redaction engine.
+ * @throws A `TypeError` when an exemption names a key that is not a
+ * declared personal-data key, or one that also names a credential.
  */
 export const createRedaction = (
   extraSensitiveKeys: Iterable<string> = [],
-  { personalDataKeys = [] }: RedactionOptions = {},
+  { notPersonalUnder = {}, personalDataKeys = [] }: RedactionOptions = {},
 ): Redaction => {
   // Two tiers declared apart, ONE blanking verdict: every seat asks the
   // engine "must the value behind this key be blanked?", and the answer
@@ -185,18 +248,35 @@ export const createRedaction = (
   // it, since the core knows no wire's field names (api-core#50,
   // 2026-10-09). The three sources feed ONE set, a union, so the
   // personal tier can only ever ADD to what is blanked, never remove.
-  const sensitiveKeys = new Set(
-    [...BASE_SENSITIVE_KEYS, ...extraSensitiveKeys, ...personalDataKeys].map(
-      (key) => key.toLowerCase(),
+  const credentialKeys = new Set(
+    [...BASE_SENSITIVE_KEYS, ...extraSensitiveKeys].map((key) =>
+      key.toLowerCase(),
     ),
   )
+  const personalKeys = new Set(
+    Iterator.from(personalDataKeys).map((key) => key.toLowerCase()),
+  )
+  const sensitiveKeys = credentialKeys.union(personalKeys)
   const isSensitive: KeySensitivity = (key) =>
     sensitiveKeys.has(key.toLowerCase())
+  // What the SDK may take back is narrower than what it added: a
+  // personal key, in the seats it names, and never a credential — a key
+  // both tiers hold stays blanked everywhere.
+  const keptKeys = createKeptKeys(
+    notPersonalUnder,
+    (key) =>
+      personalKeys.has(key.toLowerCase()) &&
+      !credentialKeys.has(key.toLowerCase()),
+  )
+  const isSensitiveUnder: SeatedKeySensitivity = (key, parent) =>
+    isSensitive(key) &&
+    (parent === undefined ||
+      keptKeys.get(parent.toLowerCase())?.has(key.toLowerCase()) !== true)
   const redactFormEncoded = createFormEncodedRedaction(isSensitive)
   return {
     isSensitive,
     redactUrl: createUrlRedaction(redactFormEncoded),
-    redactValue: createValueRedaction(isSensitive, redactFormEncoded),
+    redactValue: createValueRedaction(isSensitiveUnder, redactFormEncoded),
   }
 }
 

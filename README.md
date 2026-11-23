@@ -324,6 +324,28 @@ and `username`. A key matches by its whole name, whatever its case, and
 its value reads `******` in every `HttpError` and every logged request
 and response.
 
+One word can name a person's entry in one object and your API's own
+label in another. Declare the word, then name the parent key under
+which it is not personal:
+
+```ts title="redaction"
+import { createRedaction } from '@olivierzal/api-core'
+
+const redaction = createRedaction(['x-vendor-token'], {
+  notPersonalUnder: { settings: ['name'] },
+  personalDataKeys: ['deviceName', 'name'],
+})
+// { name: 'Home', settings: [{ name: 'Power', value: 'On' }] }
+// is logged as
+// { name: '******', settings: [{ name: 'Power', value: 'On' }] }
+```
+
+The parent is the nearest key around the object, and a list in between
+does not count. A header, a query parameter and a form-encoded pair
+have no parent: the key is always redacted there. Only a key you
+declared in `personalDataKeys` can be named, never a secret:
+`createRedaction` throws otherwise.
+
 ### Read the logs
 
 Lines go to the host's `logger`, `console` by default, prefixed with
