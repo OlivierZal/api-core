@@ -5,10 +5,22 @@ Shared API-client core for the OlivierZal SDKs (`melcloud-api`,
 consumer — adoption is a reviewed PR per release, never a range. ESM
 only, Node >= 22.20.
 
-The README speaks to the package's CONSUMER (install, subpaths, the
-vocabulary and session seams); this file speaks to its MAINTAINER. Doctrine evolves
-HERE first — a rule stated in both files must say the same thing, and
-the README carries at most a one-line pointer at it.
+The README speaks to the package's USER: what it gives, how to install
+it and how to use it, with examples that compile. It never explains
+how the package is built or why (owner's rule, 2026-11-22): the
+architecture and the full surface are the generated reference's, the
+doctrine and its reasons are this file's, the workflow is
+CONTRIBUTING.md's. The reference shows PROTECTED members here, against
+the configs preset (in `typedoc.config.js`, `excludeProtected: false`
+emits them and `visibilityFilters` displays them without a click): a
+consumer subclasses `SessionAPI`, so its hooks and helpers are the
+consumer's surface, and each needs its doc comment (the docs build
+fails on a method or a constructor without one; it cannot see the
+`expiry` accessor and asks nothing of a property, so those are read by
+eye). The README's "Implement the hooks" tables are the overview of
+that surface — a change to a hook or a helper in `session-api.ts`
+changes those tables too. Doctrine evolves HERE first — a rule stated
+in both files must say the same thing.
 
 ## Why this package exists — the expired deferral
 
@@ -40,9 +52,17 @@ Run the FULL suite before any push; check real exit codes:
   the webview floor on the consumer-bundleable leaves, and the `u`-flag
   regex pin over all of `src` (see Runtime floors).
 - `npm run typecheck` — the native TypeScript 7 compiler, reached by its
-  explicit path (`node ./node_modules/@typescript/native/bin/tsc`). A
-  bare `tsc` silently typechecks with TypeScript 6 — only the explicit
-  path holds.
+  explicit path (`node ./node_modules/@typescript/native/bin/tsc`).
+  Never shorten it. Not because a bare `tsc` runs the wrong compiler
+  today: re-measured 2026-11-22, in this tree and in fresh installs
+  under npm 10.9.8 and 11.20.0, `.bin/tsc` is the native 7.x compiler
+  and `tsc6` the only shim of the TypeScript 6 compat package (it was
+  the other way round when the layout was adopted, in August 2026). Two
+  installed packages declare a `tsc` bin, `@typescript/native` and
+  `@typescript/old` (the TypeScript 6 the compat package depends on),
+  and npm gives the shim to one of them: the explicit path names the
+  package the script means, so a layout change fails loudly instead of
+  swapping the compiler behind the shim.
 - `npm test` / `npm run test:coverage` — vitest; thresholds are 100 %
   on all four axes, over the whole of `src/` with no exception.
 - `npm run docs` — typedoc; the Pages site deploys on release. typedoc
@@ -438,7 +458,7 @@ one-liner: one error; the two-statement form: clean). No disable
 answers it — the family forbids new ones — and no helper shape does
 either: a `never`-returning throwing variant would have to throw its
 `unknown` parameter inside this package, which the same rule refuses
-here. The README's session snippet and `session-api.test.ts`'s fixture
+here. The README's quick start and `session-api.test.ts`'s fixture
 spell the two-statement form, so the pinned clauses exercise the shape
 both SDKs carry. The vocabulary stays spelled once: `AuthRetryPolicy`
 owns it and answers `isAuthFailure(error)` publicly, and the helper

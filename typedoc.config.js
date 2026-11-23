@@ -1,8 +1,7 @@
 // @ts-check
 import { typedocBase } from '@olivierzal/configs/typedoc'
 
-/** @type {Partial<import('typedoc').TypeDocOptions>} */
-const config = typedocBase({
+const shared = typedocBase({
   // `API` first, matching the consumers' `API Clients` slot: `SessionAPI`
   // is the seam a reader opens these docs for. An omitted category is
   // not an error — typedoc just appends it after the listed ones — so
@@ -41,5 +40,24 @@ const config = typedocBase({
       'https://github.com/OlivierZal/api-core/pkgs/npm/api-core',
   },
 })
+
+// A consumer of this package subclasses `SessionAPI`: the protected
+// hooks and helpers are the surface it writes against, so the
+// reference emits them (`excludeProtected`) and displays them from the
+// first visit (`visibilityFilters`: the theme hides protected members
+// until the reader ticks "Protected", and the option replaces its
+// default object whole, hence the three other keys). The shared preset
+// hides protected members, which suits a package nobody subclasses.
+/** @type {Partial<import('typedoc').TypeDocOptions>} */
+const config = {
+  ...shared,
+  excludeProtected: false,
+  visibilityFilters: {
+    external: false,
+    inherited: true,
+    private: false,
+    protected: true,
+  },
+}
 
 export default config

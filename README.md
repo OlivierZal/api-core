@@ -1,15 +1,13 @@
 # @olivierzal/api-core
 
-Shared API-client core for the OlivierZal SDKs (`melcloud-api`,
-`heatzy-api`): the session lifecycle and request pipeline
-(`SessionAPI`, which both SDKs subclass), the redaction-seated HTTP
-client, the observability shells, and the resilience primitives — the
-MECHANISM the SDKs used to carry as byte-identical twins. The protocol vocabularies (sensitive-key
-sets, wire types, status semantics) stay in each consumer and are
-INJECTED here, never owned.
+Shared API-client core for the OlivierZal SDKs
+(`@olivierzal/melcloud-api`, `@olivierzal/heatzy-api`): the HTTP client
+and the session base class an SDK is built on. You supply what is
+specific to your API: how to sign in, which headers carry the session,
+which keys are secret.
 
-[![License](https://img.shields.io/github/license/OlivierZal/api-core)](LICENSE)
-[![Node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FOlivierZal%2Fapi-core%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](package.json)
+[![License](https://img.shields.io/github/license/OlivierZal/api-core)](https://github.com/OlivierZal/api-core/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FOlivierZal%2Fapi-core%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](https://github.com/OlivierZal/api-core/blob/main/package.json)
 [![GitHub release](https://img.shields.io/github/v/release/OlivierZal/api-core?sort=semver)](https://github.com/OlivierZal/api-core/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/OlivierZal/api-core/ci.yml?branch=main&label=CI)](https://github.com/OlivierZal/api-core/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/OlivierZal/api-core/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/OlivierZal/api-core/security/code-scanning)
@@ -18,194 +16,327 @@ INJECTED here, never owned.
 [![Test coverage](https://sonarcloud.io/api/project_badges/measure?project=OlivierZal_api-core&metric=coverage)](https://sonarcloud.io/component_measures?id=OlivierZal_api-core&metric=coverage)
 [![Docs coverage](https://olivierzal.github.io/api-core/coverage.svg)](https://olivierzal.github.io/api-core/)
 
-## Install
+## Features
 
-The package lives on GitHub Packages:
+- An HTTP client over `fetch`: JSON in and out, an `HttpError` on any
+  non-2xx response, secrets redacted from errors and logs.
+- `SessionAPI`, the base class of your client: sign-in, stored session,
+  refresh, re-authentication, restore at start-up, sign-out.
+- Reads retried up to four times on a transient failure, writes never,
+  and optional rate-limit handling.
+- Automatic sync of your device registry, and events for the host.
+- Typed errors, logs that stay readable when a failure repeats, and
+  test helpers for vitest.
 
-```ini title="npmrc"
+## Requirements
+
+- Node.js `>=22.20.0`. The package ships as ES modules only.
+- A GitHub token with the `read:packages` scope, to install from GitHub
+  Packages.
+- Standard decorators, not `experimentalDecorators`, for `@setting` and
+  `@syncDevices()`.
+
+## Installation
+
+The package is published to GitHub Packages, not the public npm
+registry. Point the `@olivierzal` scope at it, with the token in
+`NODE_AUTH_TOKEN`:
+
+```ini title=".npmrc"
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 @olivierzal:registry=https://npm.pkg.github.com
 ```
 
+Then install the package at an exact version:
+
 ```sh title="install"
-npm install @olivierzal/api-core
+npm install --save-exact @olivierzal/api-core
 ```
 
-Pin it exactly — adoption of a new version is a reviewed PR, never a
-range.
+Import from `@olivierzal/api-core`, which uses Node built-ins. Three
+modules that use none are also entry points of their own, for a
+browser bundle: `@olivierzal/api-core/fire-and-forget`
+(`fireAndForget`), `@olivierzal/api-core/temporal` (`Temporal` and
+`Intl`) and `@olivierzal/api-core/time-units` (`MS_PER_SECOND`,
+`MS_PER_MINUTE`, `MS_PER_DAY` and `SESSION_REFRESH_AHEAD_MS`). The test
+helpers are in `@olivierzal/api-core/testing`.
 
-## Subpaths
+## Quick start
 
-| Import                                 | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@olivierzal/api-core`                 | Everything: `HttpClient`/`HttpError`/`HttpStatus` and `readHeaders`, the redaction engine (`createRedaction`, `BASE_SENSITIVE_KEYS`, `REDACTED`), the observability shells (`APICallRequestData`, `APICallResponseData`, `createAPICallErrorData`, `LifecycleEmitter`), the resilience primitives, `SessionAPI` + `SyncManager`, the errors `APIError`/`AuthenticationError`/`AuthenticationThrottledError`/`RateLimitError`/`RegistrySyncError`/`ValidationError` and the guards `isAPIError`/`isHttpError`, the `setting` accessor decorator and the `syncDevices` method decorator factory, `LoginCredentials`, the lifecycle types — plus a re-export of the three flat subpath modules below (never `./testing`) |
-| `@olivierzal/api-core/fire-and-forget` | `fireAndForget` — the one sanctioned detach-and-log seam                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `@olivierzal/api-core/temporal`        | `Temporal` + `Intl` — the single `temporal-polyfill` entry point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `@olivierzal/api-core/testing`         | The vitest-backed helpers the SDK suites share — `cast`, `defined`, `mock`, `createLogger`, `createSettingStore`, `createMockHttpClient`, `mockFetchResponse`, `mockHttpResponse`, the `HttpError` factories, the `Temporal` clock spies. Imports `vitest` from YOUR devDependencies; never re-exported by the root barrel                                                                                                                                                                                                                                                                                                                                                                                            |
-| `@olivierzal/api-core/time-units`      | `MS_PER_SECOND`, `MS_PER_MINUTE`, `MS_PER_DAY`, `SESSION_REFRESH_AHEAD_MS`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+Extend `SessionAPI`, hand it an `HttpClient` and implement its twelve
+hooks. This client signs in for a token, lists device ids and switches
+a device on or off:
 
-`setting` persists a decorated accessor through your host's
-`SettingManager`, under a key that IS the accessor's name — renaming
-the accessor renames the stored key and strands the value ([the rule
-and its probe](CLAUDE.md)). `syncDevices(params?)` is the method
-decorator factory that awaits the decorated method, then calls the
-host's `notifySync(params)` — `@syncDevices({ type })` forwards the
-payload, `@syncDevices()` notifies without one; the host's `notifySync`
-is a structural contract.
-
-## The vocabulary seam
-
-Every redaction seat takes a `Redaction` engine built from YOUR wire's
-credential keys. The base vocabulary (`authorization`, `cookie`,
-`set-cookie`, `password`, `username`, `email`, `token`) always applies;
-`createRedaction` unions your keys on top, so extending can only ever
-redact MORE. A second, separately declared tier names the user-entered
-or identifying fields your wire carries (`personalDataKeys`: a device's
-display name, an account holder's name) — blanked exactly like a
-credential, in every dump and snapshot, and empty unless you fill it:
-the core cannot know your field names, and the request/response dumps
-print bodies up to `MAX_LOGGED_BODY_BYTES` (4 KiB; a larger body is
-omitted whole and counted, so a hundred one-line records fit a Homey
-diagnostic report and its upload), so a name stays out of a pasted
-report only where you declare its key.
-
-```ts title="wiring"
+```ts title="quick-start"
 import {
-  AuthRetryPolicy,
+  type LoginCredentials,
+  type SessionAPIConfig,
   createRedaction,
   HttpClient,
-  HttpStatus,
-  RetryGuard,
+  isSessionExpired,
+  SESSION_REFRESH_AHEAD_MS,
+  SessionAPI,
+  setting,
 } from '@olivierzal/api-core'
 
-// One engine per SDK, seeded with its protocol's credential keys and
-// the user-entered fields its payloads carry.
-const redaction = createRedaction(['x-mitscontextkey', 'contextkey'], {
-  personalDataKeys: ['givenDisplayName'],
-})
-
-// Every HttpError this client throws carries a snapshot redacted
-// through that vocabulary — request headers/body/params/url-query and
-// response headers/body alike, at construction, not at log time.
-const client = new HttpClient({
-  baseURL: 'https://api.example.com',
+const redaction = createRedaction(['x-vendor-token'])
+const transport = new HttpClient({
+  baseURL: 'https://api.vendor.example',
   redaction,
   timeout: 30_000,
 })
 
-// A wire that reports an expired token as 400 injects its statuses.
-const authRetry = new AuthRetryPolicy(
-  new RetryGuard(60_000),
-  async () => resumeSession(),
-  [HttpStatus.Unauthorized, HttpStatus.BadRequest],
-)
-```
+export class VendorAPI extends SessionAPI {
+  public deviceIds: readonly string[] = []
 
-Constructing an `HttpError`, `APICallRequestData`,
-`APICallResponseData` or `createAPICallErrorData` directly? Pass the
-same engine. Without one, the base vocabulary applies — generic
-carriers are always covered, protocol keys only where injected.
+  @setting
+  private accessor token = ''
 
-## The session seam
-
-`SessionAPI` is the abstract session lifecycle and request pipeline:
-persisted credentials, the login-backoff gate, single-flight session
-refresh, the resilience pipeline around every request, and the
-sync-cycle template. Extend it, hand it what your protocol knows, and
-implement the twelve hooks (`doAuthenticate`, `getAuthHeaders`,
-`isAuthenticated`, `syncRegistry`, `enforceRegistrySync`, …):
-
-```ts title="session"
-class MyAPI extends SessionAPI<MySyncParams> {
-  public constructor(config: MyConfig = {}) {
-    super(config, {
-      // YOUR resolver, YOUR HttpClient subclass — the core takes the
-      // transport already built, so a host-supplied client is judged
-      // against the class that seats your redaction vocabulary.
-      transport: buildTransport(config.transport),
-      defaultSyncIntervalMinutes: 5,
-      // Omit `rateLimitHours` for a wire that has never sent a 429;
-      // omit `logLabel` when one client per host needs no prefix.
-      authFailureStatuses: [HttpStatus.Unauthorized, HttpStatus.BadRequest],
-    })
+  public constructor(config: SessionAPIConfig = {}) {
+    super(config, { defaultSyncIntervalMinutes: 5, redaction, transport })
   }
 
-  protected override async doAuthenticate(
-    credentials: LoginCredentials,
-  ): Promise<void> {
+  public isAuthenticated(): boolean {
+    return this.token !== ''
+  }
+
+  public async setPower(id: string, isOn: boolean): Promise<void> {
+    await this.request('post', `/devices/${id}`, { data: { isOn } })
+  }
+
+  protected clearPersistedSession(): void {
+    this.token = ''
+    this.expiry = ''
+  }
+
+  protected clearRegistry(): void {
+    this.deviceIds = []
+  }
+
+  protected async doAuthenticate(credentials: LoginCredentials): Promise<void> {
     try {
-      await this.login(credentials)
-    } catch (error) {
-      // The same statuses, spelled once: a rejection on them becomes
-      // the shared AuthenticationError (cause preserved); anything
-      // else is rethrown verbatim — as a BARE `throw error`, the
-      // catch-clause rethrow `only-throw-error` admits (a `?? error`
-      // one-liner is typed `unknown` there and refused).
-      const authError = this.toAuthFailure(
-        error,
-        'Vendor rejected the credentials',
+      const { data } = await this.dispatch<{ expiry: string; token: string }>(
+        'post',
+        '/login',
+        { authenticated: false, data: credentials },
       )
+      this.token = data.token
+      this.expiry = data.expiry
+    } catch (error) {
+      const authError = this.toAuthFailure(error, 'Credentials rejected')
       if (authError !== null) {
         throw authError
       }
       throw error
     }
   }
+
+  protected async enforceRegistrySync(): Promise<void> {
+    await this.#refreshDevices()
+  }
+
+  protected getAuthHeaders(): Record<string, string> {
+    return this.token === '' ? {} : { 'x-vendor-token': this.token }
+  }
+
+  protected hasPersistedSession(): boolean {
+    return this.token !== ''
+  }
+
+  protected needsSessionRefresh(): boolean {
+    return isSessionExpired(this.expiry, SESSION_REFRESH_AHEAD_MS)
+  }
+
+  protected async performSessionRefresh(): Promise<void> {
+    await this.resumeSession()
+  }
+
+  protected async reauthenticate(): Promise<boolean> {
+    this.clearPersistedSession()
+    return this.resumeSession()
+  }
+
+  protected reuseSucceeded(): boolean {
+    return this.isAuthenticated()
+  }
+
+  protected async syncRegistry(): Promise<void> {
+    await this.runBestEffortSyncCycle(async () => this.#refreshDevices())
+  }
+
+  async #refreshDevices(): Promise<readonly string[]> {
+    return this.runSyncCycle(async () => {
+      const { data } = await this.request<string[]>('get', '/devices')
+      this.deviceIds = data
+      return data
+    })
+  }
 }
+
+// What a host does with it.
+const api = new VendorAPI()
+await api.start()
+if (!api.isAuthenticated()) {
+  await api.authenticate({ password: 'secret', username: 'user@example.com' })
+}
+await api.setPower('device-1', true)
 ```
 
-The four settings it persists are named by their accessors — `expiry`,
-`loginBackoffUntil`, `password`, `username` — so a host that already
-holds those keys keeps its stored values.
+The first constructor argument comes from the host, the application
+that uses your client (`SessionAPIConfig`): `settingManager`, `logger`,
+`syncIntervalMinutes`, `abortSignal` and `events`, callbacks for each
+request, a lost or restored session and each sync your subclass
+notifies. The second is yours (`SessionAPIOptions`): `transport` and
+`defaultSyncIntervalMinutes`, and optionally `redaction`,
+`authFailureStatuses`, `isAuthFailure`, `rateLimitHours` and `logLabel`.
 
-A failure that repeats is ONE event in your log. Whatever cadence your
-client polls on, a call that keeps failing and a registry cycle that
-keeps failing are each reported when the streak opens, when its reason
-changes, and at most every five minutes while it stands; the recovery
-is one line counting the whole streak, the failure that opened it
-included: `GET /devices answered again after 42 failed attempts`. Override the
-protected `logError` to silence a dialect's expected failure — its error
-ENTRY, not its recovery line, which the pipeline writes on its own
-verdict: any `HttpError` opens a streak. The class is exported for a
-dialect's own subjects — `FailureStreaks`, with `failureReason` for the
-identity and `FAILURE_REMINDER_INTERVAL_MS` for the window — so a
-failure the pipeline cannot key (a payload refusing a schema) is
-streaked the same way rather than re-implemented; `has()` says whether
-a subject's streak is open.
+## Usage
 
-A failure the core has a class for — an `HttpError`, one of its own
-errors, a transport failure (undici's `fetch failed`, the client's
-`TimeoutError`, a caller's `AbortError`), anywhere in its `cause` chain
-— is written as ONE line naming that chain, with no stack: `Failed to
-fetch devices: TypeError: fetch failed — caused by ConnectTimeoutError:
-Connect Timeout Error (UND_ERR_CONNECT_TIMEOUT)`. A programming error
-keeps its stack: it is logged as the label and the error object — under
-a `RegistrySyncError` too, which is judged by what it wraps. The
-same split is yours through `logFailure(logger, label, error)`, with
-`isKnownFailure` and `failureCauseChain` beside it for a line of your
-own.
+### Implement the hooks
 
-## Testing
+The API reference documents each hook and helper in full. In short,
+the twelve hooks you implement:
 
-The helpers every SDK suite used to copy come from the `./testing`
-subpath — it imports `vitest` from your devDependencies and is never
-re-exported by the root barrel:
+| Hook                          | What it must do                                                                                                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isAuthenticated()`           | Say whether a session is usable, from local state alone. The only public hook.                                                                                                     |
+| `getAuthHeaders()`            | Return the headers that carry the session.                                                                                                                                         |
+| `doAuthenticate(credentials)` | Sign in. On success, replace the whole stored session; on failure, store nothing and throw.                                                                                        |
+| `clearPersistedSession()`     | Clear every stored session value, such as the token and its expiry.                                                                                                                |
+| `clearRegistry()`             | Empty the device registry, so that a signed-out client exposes nothing.                                                                                                            |
+| `hasPersistedSession()`       | Say whether a stored session is worth trying at start-up.                                                                                                                          |
+| `reuseSucceeded()`            | Say whether that attempt left a usable session.                                                                                                                                    |
+| `needsSessionRefresh()`       | Say whether the session must be refreshed before the next request.                                                                                                                 |
+| `performSessionRefresh()`     | Refresh it. An error fails the request that triggered the refresh.                                                                                                                 |
+| `reauthenticate()`            | Recover after the server refused the session. Resolving `true` replays the request once.                                                                                           |
+| `syncRegistry()`              | Refresh the registry without throwing. Runs at start-up, when a stored session is tried, and on every automatic sync.                                                              |
+| `enforceRegistrySync()`       | Refresh the registry and let a failure propagate. Runs after an accepted sign-in: if it fails, `authenticate()` rejects with a `RegistrySyncError` and the client stays signed in. |
 
-```ts title="testing"
-import {
-  createMockHttpClient,
-  createSettingStore,
-  mockTemporalNowInstant,
-} from '@olivierzal/api-core/testing'
+What your subclass uses:
 
-// YOUR HttpClient subclass, so the spy-wrapped transport is the one
-// your resolver accepts.
-const { client, requestSpy } = createMockHttpClient(HttpClient, baseURL)
-```
+| Helper                                   | What it is for                                                                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request(method, url, config?)`          | Send a request with the session, as the next section describes. `config` takes `data`, `params`, `headers` and `idempotent`.                                           |
+| `dispatch(method, url, config?)`         | Send one request with no refresh and no retry, as `doAuthenticate` needs. `authenticated: false` leaves the session headers off.                                       |
+| `toAuthFailure(error, message)`          | Return an `AuthenticationError` when `error` is an `HttpError` with one of your `authFailureStatuses`, `null` otherwise.                                               |
+| `runSyncCycle(work)`                     | Wrap every registry refresh in it: it runs the refresh, then schedules the next automatic sync. A refresh run outside it schedules none. A failure is rethrown.        |
+| `runBestEffortSyncCycle(cycle)`          | Run a refresh that must not throw: a failure is logged and the result is an empty array.                                                                               |
+| `applyCredentials(username?, password?)` | Store credentials without signing in, for `start()` to use.                                                                                                            |
+| `expiry`                                 | The stored expiry of the session: a string that `isSessionExpired` reads as an ISO 8601 timestamp. Passing it `SESSION_REFRESH_AHEAD_MS` refreshes five minutes early. |
+| `rateLimitGate`                          | The rate-limit pause (`isPaused`), `undefined` without `rateLimitHours`.                                                                                               |
+| `logError(error)`                        | Override it to keep an expected failure out of the log. The line written when the endpoint answers again still appears.                                                |
+| `@setting`                               | Decorator for a string `accessor`: its value is kept in the host's `settingManager` under the accessor's name, so renaming it leaves the stored value behind.          |
+| `@syncDevices()`                         | Decorator for an async method: once it has resolved, it calls `notifySync()`, the only thing that fires the host's `onSyncComplete`. Put it on your registry refresh.  |
 
-## Docs
+### Send requests
 
-Full API reference: <https://olivierzal.github.io/api-core/>.
+- A read (a `GET`, or a request passing `idempotent: true`) is retried
+  up to four times on a transient failure: an HTTP 500, 502, 503 or
+  504, a network failure or a timeout. The retries wait about 1, 2, 4
+  and 8 seconds. A write is never retried on a transient failure.
+- A request refused with one of your `authFailureStatuses` (401 by
+  default, narrowed by `isAuthFailure` when you pass it) is replayed
+  once after `reauthenticate()` resolves `true`.
+- With `rateLimitHours`, a 429 puts requests on hold until its
+  `Retry-After` has passed, or for that many hours without one:
+  meanwhile they reject with a `RateLimitError` instead of being sent.
+- A non-2xx response rejects with an `HttpError`, which is not an
+  `APIError`: each has its guard, `isHttpError` and `isAPIError`. A
+  network failure, a timeout and an abort reject as `fetch` does.
 
-Maintainer doctrine lives in [`CLAUDE.md`](CLAUDE.md) — including why
-this package exists (the 2026-08-21 twin-divergence leak) and what may
-enter it.
+### Sign in and restore the session
+
+`start()` restores the stored session, or else signs in with the
+stored credentials through `resumeSession()`. Neither throws on a
+failed sign-in, and `resumeSession()` resolves to whether it was
+accepted.
+
+After a sign-in that `doAuthenticate` rejects with an
+`AuthenticationError`, `resumeSession()` stops signing in for 15
+minutes. Throw an `AuthenticationThrottledError` when the API throttles
+sign-ins: the pause is then 2 hours, or its `retryAfter` when that is
+shorter. The pause is stored like the session, so it survives a restart
+when the host passes a `settingManager`, and an explicit
+`authenticate()` ignores it. When the stored sign-in fails for another
+reason, such as a network failure, `resumeSession()` tries again every
+minute.
+
+To keep the session across restarts, the host passes a
+`settingManager`: an object with `get(key)`, `set(key, value)` and
+optionally `unset(key)`. Without one, values stay in memory. The base
+class keeps `username`, `password`, `expiry` and `loginBackoffUntil` in
+it, and `authenticate()` writes the credentials, as given, only once
+the server accepted them.
+
+When only a new sign-in can restore the session (the stored
+credentials were refused, or a stored session ended with none to renew
+it), `onAuthenticationLost` fires once and the automatic sync stops
+until `authenticate()` succeeds.
+
+### Keep the registry in sync
+
+The registry is refreshed every `syncIntervalMinutes` (the host's
+choice) or `defaultSyncIntervalMinutes` (yours); `false` disables the
+sync. A write holds the next run back until 3 seconds after it
+completes.
+
+### Redact secrets and personal data
+
+`createRedaction(keys, { personalDataKeys })` takes your API's secret
+keys and the fields its users type, such as a device name: a field you
+do not declare is logged as is. Pass the same engine to your
+`HttpClient` and to `SessionAPI`. Seven keys are always redacted:
+`authorization`, `cookie`, `email`, `password`, `set-cookie`, `token`
+and `username`. A key matches by its whole name, whatever its case, and
+its value reads `******` in every `HttpError` and every logged request
+and response.
+
+### Read the logs
+
+Lines go to the host's `logger`, `console` by default, prefixed with
+`logLabel` when you pass one. Every request and every response is one
+line of JSON, in which a body over 4096 bytes reads
+`[body omitted: N bytes]`. A request the server refuses, a failed
+registry refresh and a session restore that fails for a transient
+reason are each logged when the failure starts, when its reason
+changes, and at most every 5 minutes while it lasts; one line then
+reports the recovery, such as
+`GET /devices answered again after 3 failed attempts`. A restore the
+server refuses is logged each time it is tried. For your own
+lines, `FailureStreaks` applies the same rule, and `logFailure` writes
+a failure the package recognises as one line naming its causes.
+
+### Test your client
+
+`@olivierzal/api-core/testing` holds helpers for a vitest suite, with
+`vitest` among your own `devDependencies`: doubles for the host's
+logger and store (`createLogger`, `createSettingStore`), a transport
+with a spy on its `request` (`createMockHttpClient`), what that spy or
+a stubbed `fetch` resolves with (`mockHttpResponse`,
+`mockFetchResponse`), `HttpError` factories, and
+`mockTemporalNowInstant` to make `Temporal.Now.instant()` follow fake
+timers.
+
+## API reference
+
+The generated reference lists every exported name, and the protected
+hooks and helpers of `SessionAPI`:
+<https://olivierzal.github.io/api-core/>. It covers the parts
+`SessionAPI` is built from too, for a client that does not extend it.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), and report a problem in the
+[issues](https://github.com/OlivierZal/api-core/issues).
+
+## Security
+
+For vulnerability reports, see [SECURITY.md](SECURITY.md).
+
+## Changelog
+
+See the [release notes](https://github.com/OlivierZal/api-core/releases).
+
+## License
+
+[MIT](LICENSE) © Olivier Zalmanski

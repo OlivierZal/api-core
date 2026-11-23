@@ -83,6 +83,12 @@ export abstract class APICallLogData {
 
   readonly #redaction: Redaction
 
+  /**
+   * Keeps what every logged call names: its method, upper-cased, its
+   * url and its query parameters.
+   * @param config - The request the call was made with.
+   * @param redaction - The engine the serialization redacts through.
+   */
   protected constructor(
     config?: LoggableRequestConfig,
     redaction: Redaction = baseRedaction,

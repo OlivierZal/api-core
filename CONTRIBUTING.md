@@ -38,8 +38,11 @@ npm run docs            # typedoc
 npm run lint:package    # build + publint --strict
 ```
 
-`prepublishOnly` chains tests, typecheck, lint, format and docs, so
-publishing without them passing is impossible.
+`prepublishOnly` chains tests, typecheck, lint, format and docs, so an
+`npm publish` run from the working tree stops when one of them fails.
+The release workflow publishes the packed tarball instead, for which npm
+runs no `prepublishOnly`: there, the checks required on `main` are what
+stands behind a release.
 
 ## Coverage
 
