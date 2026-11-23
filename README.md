@@ -343,8 +343,9 @@ const redaction = createRedaction(['x-vendor-token'], {
 The parent is the nearest key around the object, and a list in between
 does not count. A header, a query parameter and a form-encoded pair
 have no parent: the key is always redacted there. Only a key you
-declared in `personalDataKeys` can be named, never a secret:
-`createRedaction` throws otherwise.
+declared in `personalDataKeys` can be named, never a secret, and never
+under a parent that is itself redacted: `createRedaction` throws
+otherwise.
 
 ### Read the logs
 

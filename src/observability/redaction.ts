@@ -83,9 +83,12 @@ export interface RedactionOptions {
    * text riding under it.
    *
    * Only a declared personal-data key that names no credential can be
-   * exempted: {@link createRedaction} throws on any other, so a
-   * credential can never be printed through this option and an
-   * exemption that would do nothing never passes for one that does.
+   * exempted, and never under a parent that is itself blanked (its
+   * value is replaced whole, so nothing under it is read):
+   * {@link createRedaction} throws on any other, so a credential can
+   * never be printed through this option and an exemption that would
+   * do nothing never passes for one that does. A parent spelled in two
+   * casings is one seat: its exemptions add up.
    */
   readonly notPersonalUnder?:
     Readonly<Record<string, Iterable<string>>> | undefined
@@ -178,31 +181,58 @@ const createValueRedaction = (
   return (value) => redactUnder(value)
 }
 
+// What an exemption is judged on: the parent it sits under, and each
+// key it names.
+interface ExemptionJudges {
+  readonly isBlankedWhole: KeySensitivity
+  readonly isExemptible: KeySensitivity
+}
+
 // The exemptions as the walk reads them: enclosing key to the keys kept
-// under it, both lower-cased like the vocabulary. Built once, and the
-// only place an exemption is judged: one that names a credential would
-// print a secret, one that names a key outside the personal tier would
-// do nothing while reading as if it did, so both throw here, where the
-// suite of the SDK that wrote it sees them.
+// under it, both lower-cased like the vocabulary, so a parent spelled
+// in two casings is ONE seat whose exemptions add up. Built once, and
+// the only place an exemption is judged. One that names a credential
+// would print a secret; one that names a key outside the personal tier,
+// or sits under a parent that is itself blanked (replaced whole, never
+// walked), would do nothing while reading as if it did. All three throw
+// here, where the suite of the SDK that wrote it sees them.
+const toKeptKeys = (
+  parent: string,
+  keys: Iterable<string>,
+  isExemptible: KeySensitivity,
+): Set<string> =>
+  new Set(
+    Iterator.from(keys).map((key) => {
+      if (!isExemptible(key)) {
+        throw new TypeError(
+          `\`${key}\` cannot be exempted under \`${parent}\`: only a declared personal-data key that names no credential can`,
+        )
+      }
+      return key.toLowerCase()
+    }),
+  )
+
 const createKeptKeys = (
   notPersonalUnder: Readonly<Record<string, Iterable<string>>>,
-  isExemptible: KeySensitivity,
-): ReadonlyMap<string, ReadonlySet<string>> =>
-  new Map(
-    Object.entries(notPersonalUnder).map(([parent, keys]) => [
-      parent.toLowerCase(),
-      new Set(
-        Iterator.from(keys).map((key) => {
-          if (!isExemptible(key)) {
-            throw new TypeError(
-              `\`${key}\` cannot be exempted under \`${parent}\`: only a declared personal-data key that names no credential can`,
-            )
-          }
-          return key.toLowerCase()
-        }),
+  { isBlankedWhole, isExemptible }: ExemptionJudges,
+): ReadonlyMap<string, ReadonlySet<string>> => {
+  const keptKeys = new Map<string, ReadonlySet<string>>()
+  for (const [parent, keys] of Object.entries(notPersonalUnder)) {
+    if (isBlankedWhole(parent)) {
+      throw new TypeError(
+        `Nothing can be exempted under \`${parent}\`: the key is blanked whole, what it holds is never read`,
+      )
+    }
+    const seat = parent.toLowerCase()
+    keptKeys.set(
+      seat,
+      toKeptKeys(parent, keys, isExemptible).union(
+        keptKeys.get(seat) ?? new Set<string>(),
       ),
-    ]),
-  )
+    )
+  }
+  return keptKeys
+}
 
 const createUrlRedaction =
   (redactFormEncoded: (value: string) => string | undefined) =>
@@ -233,7 +263,8 @@ const createUrlRedaction =
  * the SDK names, in any casing.
  * @returns The bound redaction engine.
  * @throws A `TypeError` when an exemption names a key that is not a
- * declared personal-data key, or one that also names a credential.
+ * declared personal-data key, one that also names a credential, or
+ * sits under a parent that is itself blanked.
  */
 export const createRedaction = (
   extraSensitiveKeys: Iterable<string> = [],
@@ -262,12 +293,12 @@ export const createRedaction = (
   // What the SDK may take back is narrower than what it added: a
   // personal key, in the seats it names, and never a credential — a key
   // both tiers hold stays blanked everywhere.
-  const keptKeys = createKeptKeys(
-    notPersonalUnder,
-    (key) =>
+  const keptKeys = createKeptKeys(notPersonalUnder, {
+    isBlankedWhole: isSensitive,
+    isExemptible: (key) =>
       personalKeys.has(key.toLowerCase()) &&
       !credentialKeys.has(key.toLowerCase()),
-  )
+  })
   const isSensitiveUnder: SeatedKeySensitivity = (key, parent) =>
     isSensitive(key) &&
     (parent === undefined ||
