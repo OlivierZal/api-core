@@ -202,6 +202,8 @@ class Harness extends SessionAPI<SyncParams> {
 
   public onPerformSessionRefresh?: (() => Promise<void>) | undefined
 
+  public onReauthenticate?: (() => void) | undefined
+
   public onReuseSucceeded?: (() => void) | undefined
 
   public refreshError?: Error | undefined
@@ -212,6 +214,10 @@ class Harness extends SessionAPI<SyncParams> {
 
   // Ordered trace of the hooks the template actually called.
   public readonly seen: string[] = []
+
+  // Heatzy's and `melcloud` Home's wiring: the session the server just
+  // refused is cleared before the reactive recovery runs.
+  public shouldClearRefusedSession = false
 
   // The SDKs' `doAuthenticate` wiring: the rejection is narrowed through
   // the protected `toAuthFailure` where the wire means an auth failure,
@@ -415,6 +421,10 @@ class Harness extends SessionAPI<SyncParams> {
 
   protected async reauthenticate(): Promise<boolean> {
     this.seen.push('reauthenticate')
+    if (this.shouldClearRefusedSession) {
+      this.clearPersistedSession()
+    }
+    this.onReauthenticate?.()
     if (this.shouldReauthenticateViaResume) {
       return this.resumeSession()
     }
@@ -447,6 +457,20 @@ class Harness extends SessionAPI<SyncParams> {
 
 const seedSession = (harness: Harness): void => {
   harness.token = 'token:seeded'
+}
+
+// A signed-in client the server refuses, wired as heatzy and melcloud
+// Home are: the refused session is cleared, then the reactive recovery
+// runs, with whatever credentials the harness holds.
+const refuseSession = async (harness: Harness): Promise<void> => {
+  seedSession(harness)
+  harness.shouldClearRefusedSession = true
+  harness.shouldReauthenticateViaResume = true
+  respondWith(HTTP_UNAUTHORIZED)
+
+  await expect(harness.callRequest('get', '/devices')).rejects.toThrow(
+    'Request failed with status code 401',
+  )
 }
 
 const lastInit = (): FetchInit => {
@@ -2515,6 +2539,52 @@ describe(SessionAPI, () => {
       // The rejected round-trip, and nothing after it.
       expect(mockFetch).toHaveBeenCalledTimes(1)
       expect(harness.seen).toStrictEqual(['reauthenticate', 'doAuthenticate'])
+    })
+
+    // A dialect may clear the session the server just refused before it
+    // tries to sign back in (heatzy, melcloud Home). With no stored
+    // credential behind it, that session is gone for good — and the
+    // clearing leaves the cycle's epilogue nothing to tell this client
+    // from one that never signed in, so the loss went unannounced.
+    describe('a session the server refuses with no credential behind it', () => {
+      it('announces the loss once, when the dialect clears the session', async () => {
+        const onAuthenticationLost = vi.fn<() => void>()
+        using harness = new Harness({ events: { onAuthenticationLost } })
+
+        await refuseSession(harness)
+
+        expect(harness.isAuthenticated()).toBe(false)
+        expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+
+        await harness.fetchMutable()
+
+        expect(onAuthenticationLost).toHaveBeenCalledTimes(1)
+      })
+
+      it('announces the recovery once a sign-in is accepted', async () => {
+        const onAuthenticationRestored = vi.fn<() => void>()
+        using harness = new Harness({ events: { onAuthenticationRestored } })
+        await refuseSession(harness)
+
+        await harness.authenticate(CREDENTIALS)
+        await harness.fetchMutable()
+
+        expect(onAuthenticationRestored).toHaveBeenCalledTimes(1)
+      })
+
+      // A sign-out is the user's own doing: one that lands while the
+      // recovery is in flight announces nothing.
+      it('stays silent when a sign-out lands during the recovery', async () => {
+        const onAuthenticationLost = vi.fn<() => void>()
+        using harness = new Harness({ events: { onAuthenticationLost } })
+        harness.onReauthenticate = (): void => {
+          harness.logOut()
+        }
+
+        await refuseSession(harness)
+
+        expect(onAuthenticationLost).not.toHaveBeenCalled()
+      })
     })
 
     it('takes the auth-failure statuses the subclass declares', async () => {
