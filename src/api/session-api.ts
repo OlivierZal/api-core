@@ -264,6 +264,12 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
    */
   protected readonly rateLimitGate: RateLimitGate | undefined
 
+  /**
+   * The stored expiry of the session, `''` when there is none. This
+   * class only keeps it: a subclass writes it when it signs in and
+   * reads it in `needsSessionRefresh`, typically through
+   * `isSessionExpired`, which takes an ISO 8601 timestamp.
+   */
   @setting
   protected accessor expiry = ''
 
@@ -787,6 +793,14 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     await this.initialize()
   }
 
+  /**
+   * Stores the credentials a later sign-in uses, without signing in:
+   * a subclass seeds the pair its host configured, and this class
+   * stores the pair a server has just accepted. A value left out
+   * keeps the stored one.
+   * @param username - The account's username, when it is given.
+   * @param password - The account's password, when it is given.
+   */
   protected applyCredentials(username?: string, password?: string): void {
     if (username !== undefined) {
       this.username = username
@@ -885,6 +899,13 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     return this.isAuthenticated() && !this.#isCredentialRefused
   }
 
+  /**
+   * Logs a failed request: the redacted call, when the failure is an
+   * `HttpError`. A subclass overrides it to keep an expected failure
+   * out of the log; the line that reports the endpoint answering again
+   * is written all the same.
+   * @param error - What the request rejected with.
+   */
   protected logError(error: unknown): void {
     if (isHttpError(error)) {
       this.logger.error(String(createAPICallErrorData(error, this.#redaction)))
