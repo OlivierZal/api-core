@@ -209,6 +209,21 @@ SDKs re-export it exactly like `RegistrySyncError`.
   working one. Pinned in `redaction.test.ts` ("a personal-data key
   that names something else under one parent" and the three refusals),
   mutation-proved: ten mutations, each killed.
+  2.5.1 closed two ways a DEAD exemption still passed, both found by an
+  independent reading the day 2.5.0 shipped. A parent spelled in two
+  casings (`settings`, `Settings`) is one seat: the map is keyed on the
+  lower-cased parent and the second entry REPLACED the first, so which
+  exemption survived followed the order they were written in; they add
+  up now. And a parent that is itself blanked is replaced whole and
+  never walked, so nothing under it can be kept: `createRedaction`
+  throws on it like the other two. One limit stays, stated rather than
+  built: `HttpError` redacts its `params` one value at a time, so the
+  walk of a param's value starts with no enclosing key and an exemption
+  cannot apply to an object nested DIRECTLY under a param, where the
+  request line, which walks `params` as one record, keeps it. It can
+  only blank more, never less, and neither SDK nests an object in a
+  param; making the two seats agree would take an enclosing-key
+  argument on `redactValue`, a contract change for a case no wire has.
 - **One record, one line, bodies bounded (1.11.0 and 1.12.0,
   2026-10-12).** `APICallLogData.toString()` emits compact JSON, and a
   `requestData`/`responseData` whose redacted serialisation exceeds

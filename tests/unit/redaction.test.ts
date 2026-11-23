@@ -226,6 +226,46 @@ describe.concurrent(createRedaction, () => {
     )
   })
 
+  // A parent is matched in any casing, like a key: two spellings of one
+  // parent are one seat, and their exemptions add up. Keyed on the
+  // lower-cased parent, the second used to REPLACE the first, so which
+  // exemption survived depended on the order they were written in.
+  it('adds up the exemptions of a parent spelled in two casings', () => {
+    const redaction = createRedaction([], {
+      notPersonalUnder: { Settings: ['label'], settings: ['name'] },
+      personalDataKeys: ['label', 'name'],
+    })
+
+    expect(
+      redaction.redactValue({
+        label: 'Kitchen',
+        settings: [{ label: 'Mode', name: 'Power' }],
+      }),
+    ).toStrictEqual({
+      label: REDACTED,
+      settings: [{ label: 'Mode', name: 'Power' }],
+    })
+  })
+
+  // A parent that is itself blanked is replaced whole: nothing under it
+  // is ever walked, so an exemption there does nothing while reading as
+  // if it did.
+  it.each([
+    ['a personal-data key', 'owner'],
+    ['a credential key', 'Token'],
+  ])('refuses an exemption under a parent that is %s', (_name, parent) => {
+    expect(() =>
+      createRedaction([], {
+        notPersonalUnder: { [parent]: ['name'] },
+        personalDataKeys: ['name', 'owner'],
+      }),
+    ).toThrow(
+      new TypeError(
+        `Nothing can be exempted under \`${parent}\`: the key is blanked whole, what it holds is never read`,
+      ),
+    )
+  })
+
   it('redacts injected keys deep inside object payloads', () => {
     const redaction = createRedaction(['contextkey'])
 
