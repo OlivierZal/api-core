@@ -759,6 +759,27 @@ the vocabulary keeps one spelling — heatzy-api narrows its `400` to the
 Gizwits token codes with it. Pinned in `session-api.test.ts` (the
 login-backoff and sync-cycle clauses) and `resilience-policies.test.ts`.
 
+**The reactive recovery announces the loss its own clearing would hide
+(2.4.3).** `#isLossDefinitive()` reads the state it finds, and "a
+persisted session died with no credential to sign back in with" was
+found at boot alone: the reuse probe never clears, so `initialize()`
+still sees the session it could not reuse. While the client runs, a
+dialect whose `reauthenticate()` clears the refused session before it
+tries to sign back in (heatzy, melcloud Home) and holds no stored
+credential leaves the cycle's epilogue nothing to read:
+`#hasRecoverableState()` answers `false`, the branch of a client that
+never signed in, silent and disarmed. `#recoverRefusedSession` is what
+the auth-retry rung now runs around the hook: a session persisted
+before it, no recovery and nothing recoverable after it is that loss,
+announced there, once. A sign-out that landed meanwhile (the logOut
+epoch) is the user's own doing and announces nothing. A dialect that
+does not clear (melcloud Classic) is untouched: its session still
+stands after the hook, the cycle reads servable and nothing is
+announced (measured with the harness on 2026-11-23, before and after
+this change). Pinned in `session-api.test.ts` ("a session the server
+refuses with no credential behind it"), the harness wired as the
+clearing dialects are (`shouldClearRefusedSession`).
+
 **`syncRegistry` and `enforceRegistrySync` are not interchangeable, and
 the split is load-bearing in BOTH directions.** `tryReuseSession` calls
 the BEST-EFFORT `syncRegistry`: `initialize()` has no try/catch and

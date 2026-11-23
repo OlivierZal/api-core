@@ -451,7 +451,7 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
     )
     this.#authRetryPolicy = new AuthRetryPolicy(
       this.#retryGuard,
-      async () => this.reauthenticate(),
+      async () => this.#recoverRefusedSession(),
       { refine: isAuthFailure, statuses: authFailureStatuses },
     )
   }
@@ -1315,6 +1315,28 @@ export abstract class SessionAPI<TSyncParams = unknown> implements Disposable {
   #nextSignInTicket(): number {
     this.#signInSequence += 1
     return this.#signInSequence
+  }
+
+  // The reactive recovery, and the one loss only this moment can see. A
+  // dialect may clear the session the server just refused
+  // (`reauthenticate`'s licence): with no stored credential behind it,
+  // that session is gone for good, and the clearing leaves the cycle's
+  // epilogue nothing to tell this client from one that never signed in.
+  // A sign-out that lands meanwhile is the user's own doing, and
+  // announces nothing.
+  async #recoverRefusedSession(): Promise<boolean> {
+    const epoch = this.#logOutEpoch
+    const wasSessionPersisted = this.hasPersistedSession()
+    const isRecovered = await this.reauthenticate()
+    if (
+      !isRecovered &&
+      wasSessionPersisted &&
+      !this.#hasRecoverableState() &&
+      this.#logOutEpoch === epoch
+    ) {
+      this.#emitAuthenticationLostOnce()
+    }
+    return isRecovered
   }
 
   // The memoized body behind `ensureSession`'s single-flight handle.
