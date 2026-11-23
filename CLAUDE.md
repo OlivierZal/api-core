@@ -19,8 +19,15 @@ fails on a method or a constructor without one; it cannot see the
 `expiry` accessor and asks nothing of a property, so those are read by
 eye). The README's "Implement the hooks" tables are the overview of
 that surface — a change to a hook or a helper in `session-api.ts`
-changes those tables too. Doctrine evolves HERE first — a rule stated
-in both files must say the same thing.
+changes those tables too, and a change to `SessionAPIOptions` changes
+the options table that closes the quick start. The quick start is two
+files (`vendor-api.ts`, the client, and `main.ts`, what a host does
+with it) so that the test under "Test your client" can import the
+client: that test was RUN against the sources when it was written
+(2026-11-23, both files copied beside the suites with the package name
+pointed at `src`), and nothing reruns it. Run it again by hand when the
+quick start or a helper it uses changes. Doctrine evolves HERE first —
+a rule stated in both files must say the same thing.
 
 ## Why this package exists — the expired deferral
 

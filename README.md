@@ -67,7 +67,7 @@ Extend `SessionAPI`, hand it an `HttpClient` and implement its twelve
 hooks. This client signs in for a token, lists device ids and switches
 a device on or off:
 
-```ts title="quick-start"
+```ts title="vendor-api.ts"
 import {
   type LoginCredentials,
   type SessionAPIConfig,
@@ -106,6 +106,7 @@ export class VendorAPI extends SessionAPI {
 
   protected clearPersistedSession(): void {
     this.token = ''
+    // `expiry` is a stored setting of the base class
     this.expiry = ''
   }
 
@@ -131,6 +132,7 @@ export class VendorAPI extends SessionAPI {
     }
   }
 
+  // After an accepted sign-in: a failure must propagate
   protected async enforceRegistrySync(): Promise<void> {
     await this.#refreshDevices()
   }
@@ -160,10 +162,12 @@ export class VendorAPI extends SessionAPI {
     return this.isAuthenticated()
   }
 
+  // At start-up and on each automatic sync: never throws
   protected async syncRegistry(): Promise<void> {
     await this.runBestEffortSyncCycle(async () => this.#refreshDevices())
   }
 
+  // `runSyncCycle` schedules the next automatic sync
   async #refreshDevices(): Promise<readonly string[]> {
     return this.runSyncCycle(async () => {
       const { data } = await this.request<string[]>('get', '/devices')
@@ -172,8 +176,13 @@ export class VendorAPI extends SessionAPI {
     })
   }
 }
+```
 
-// What a host does with it.
+What a host, the application that uses your client, does with it:
+
+```ts title="main.ts"
+import { VendorAPI } from './vendor-api.ts'
+
 const api = new VendorAPI()
 await api.start()
 if (!api.isAuthenticated()) {
@@ -182,13 +191,21 @@ if (!api.isAuthenticated()) {
 await api.setPower('device-1', true)
 ```
 
-The first constructor argument comes from the host, the application
-that uses your client (`SessionAPIConfig`): `settingManager`, `logger`,
+The first constructor argument comes from the host
+(`SessionAPIConfig`): `settingManager`, `logger`,
 `syncIntervalMinutes`, `abortSignal` and `events`, callbacks for each
 request, a lost or restored session and each sync your subclass
-notifies. The second is yours (`SessionAPIOptions`): `transport` and
-`defaultSyncIntervalMinutes`, and optionally `redaction`,
-`authFailureStatuses`, `isAuthFailure`, `rateLimitHours` and `logLabel`.
+notifies. The second is yours (`SessionAPIOptions`):
+
+| Option                       | Default               | What it does                                                                                                     |
+| ---------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `transport`                  | required              | The `HttpClient` every request goes through.                                                                     |
+| `defaultSyncIntervalMinutes` | required              | The minutes between two automatic syncs when the host gives none, or `false` for no automatic sync.              |
+| `redaction`                  | the seven base keys   | The engine that masks your API's secrets and personal data in the logs (see "Redact secrets and personal data"). |
+| `authFailureStatuses`        | `[401]`               | The statuses that mean the server refused the session.                                                           |
+| `isAuthFailure`              | every listed status   | Narrows those statuses by the response itself, for an API that answers several failures with one status.         |
+| `rateLimitHours`             | none: no pause on 429 | The hours requests stay on hold after a 429 that gives no `Retry-After`.                                         |
+| `logLabel`                   | none                  | A prefix for every log line, to tell two clients apart in one log.                                               |
 
 ## Usage
 
@@ -285,7 +302,23 @@ completes.
 `createRedaction(keys, { personalDataKeys })` takes your API's secret
 keys and the fields its users type, such as a device name: a field you
 do not declare is logged as is. Pass the same engine to your
-`HttpClient` and to `SessionAPI`. Seven keys are always redacted:
+`HttpClient` and to `SessionAPI`:
+
+```ts title="redaction"
+import { createRedaction, HttpClient } from '@olivierzal/api-core'
+
+const redaction = createRedaction(['x-vendor-token'], {
+  personalDataKeys: ['deviceName'],
+})
+const transport = new HttpClient({
+  baseURL: 'https://api.vendor.example',
+  redaction,
+  timeout: 30_000,
+})
+// In your constructor: super(config, { redaction, transport, … })
+```
+
+Seven keys are always redacted:
 `authorization`, `cookie`, `email`, `password`, `set-cookie`, `token`
 and `username`. A key matches by its whole name, whatever its case, and
 its value reads `******` in every `HttpError` and every logged request
@@ -309,13 +342,45 @@ a failure the package recognises as one line naming its causes.
 ### Test your client
 
 `@olivierzal/api-core/testing` holds helpers for a vitest suite, with
-`vitest` among your own `devDependencies`: doubles for the host's
-logger and store (`createLogger`, `createSettingStore`), a transport
-with a spy on its `request` (`createMockHttpClient`), what that spy or
-a stubbed `fetch` resolves with (`mockHttpResponse`,
-`mockFetchResponse`), `HttpError` factories, and
-`mockTemporalNowInstant` to make `Temporal.Now.instant()` follow fake
-timers.
+`vitest` among your own `devDependencies`. This test signs the quick
+start's client in over a stubbed `fetch`:
+
+```ts title="vendor-api.test.ts"
+import { createLogger, mockFetchResponse } from '@olivierzal/api-core/testing'
+import { afterEach, expect, it, vi } from 'vitest'
+
+import { VendorAPI } from './vendor-api.ts'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+it('lists the devices after an accepted sign-in', async () => {
+  const fetchMock = vi
+    .fn<typeof fetch>()
+    // POST /login, then GET /devices
+    .mockResolvedValueOnce(
+      mockFetchResponse({ expiry: '2099-01-01T00:00:00Z', token: 'token' }),
+    )
+    .mockResolvedValueOnce(mockFetchResponse(['device-1']))
+  vi.stubGlobal('fetch', fetchMock)
+  const api = new VendorAPI({
+    logger: createLogger(),
+    syncIntervalMinutes: false,
+  })
+
+  await api.authenticate({ password: 'secret', username: 'user@example.com' })
+
+  expect(api.isAuthenticated()).toBe(true)
+  expect(api.deviceIds).toStrictEqual(['device-1'])
+})
+```
+
+The other helpers: a double for the host's store (`createSettingStore`),
+a transport with a spy on its `request` (`createMockHttpClient`) and
+what that spy resolves with (`mockHttpResponse`), `HttpError`
+factories, and `mockTemporalNowInstant` to make `Temporal.Now.instant()`
+follow fake timers.
 
 ## API reference
 
